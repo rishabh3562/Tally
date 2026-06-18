@@ -2,7 +2,7 @@
 
 🏦 **Intelligent Bank Statement Ingestion, Categorization & AI-Powered Insights**
 
-A full-stack application that transforms raw bank statements into structured, searchable, and AI-enriched financial intelligence for Indian tech professionals.
+A fullasdasd-stack application that transforms raw bank statements into structured, searchable, and AI-enriched financial intelligence for Indian tech professionals.
 
 ## Features
 

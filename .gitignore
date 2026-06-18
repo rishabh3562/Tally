@@ -4,7 +4,10 @@
 *.swp
 *.swo
 *~
-
+docs
+*.md
+!README.md
+!**/README.md
 # Claude Code
 .claude/
 
