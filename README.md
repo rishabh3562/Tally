@@ -428,7 +428,7 @@ MIT License - see LICENSE file for details.
 - 📐 [Architecture Documentation](./docs/ARCHITECTURE.md) *(coming soon)*
 - 🗄️ [Database Schema](./docs/DATABASE.md) *(coming soon)*
 - 🔌 [API Documentation](./docs/API.md) *(coming soon)*
-- 📋 [Product Requirements](./PersonalFinanceOS_PRD_v1.1.pdf) - Full PRD
+- 📋 [Product Requirements](./docs/PersonalFinanceOS_PRD_v1.1.pdf) - Full PRD
 
 ### Quick Links
 - Frontend code: `frontend/` (Next.js 16 + React 19)
