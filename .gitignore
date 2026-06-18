@@ -1,3 +1,18 @@
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code
+.claude/
+
+# Local files
+ignore
+rough
+
+# Environment & Secrets
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,3 +231,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Frontend (Next.js)
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log
+frontend/*.tsbuildinfo
+
+# Backend (Python)
+backend/.next/
+backend/dist/
+backend/build/
+backend/.eggs/
