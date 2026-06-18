@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # Frontend - Next.js
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: pf-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    depends_on:
+      - backend
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+  # Backend - FastAPI
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: pf-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ENVIRONMENT=development
+      - DEBUG=true
+    depends_on:
+      - redis
+    volumes:
+      - ../backend:/app
+    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  celery:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: pf-celery
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    depends_on:
+      - redis
+      - backend
+    volumes:
+      - ../backend:/app
+    command: celery -A app.queue.tasks worker --loglevel=info
+
+  # Redis - Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: pf-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # Optional: Adminer for database management
+  adminer:
+    image: adminer:latest
+    container_name: pf-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: pf-network
