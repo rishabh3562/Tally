@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { apiClient } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 export interface Message {
   id: string;
@@ -26,11 +26,16 @@ export const useChat = () => {
     setIsLoading(true);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not authenticated');
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await getAuthToken()}`,
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ question }),
       });
@@ -98,9 +103,3 @@ export const useChat = () => {
     sendMessage,
   };
 };
-
-async function getAuthToken(): Promise<string> {
-  // This would get the actual auth token from Supabase
-  const token = localStorage.getItem('supabase_auth_token') || '';
-  return token;
-}
