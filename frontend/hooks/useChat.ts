@@ -1,10 +1,7 @@
-/**
- * useChat hook for chat/RAG interface
- */
-
 import { useCallback, useState } from 'react';
+import { apiClient } from '@/lib/api';
 
-interface Message {
+export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
@@ -12,20 +9,84 @@ interface Message {
 }
 
 export const useChat = () => {
-  const [messages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const sendMessage = useCallback(async (_question: string) => {
+  const sendMessage = useCallback(async (question: string) => {
+    if (!question.trim()) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: question,
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
+
     try {
-      // TODO: Implement chat API call with streaming
-      // const response = await fetch('/api/chat', {
-      //   method: 'POST',
-      //   body: JSON.stringify({ question: _question }),
-      // });
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await getAuthToken()}`,
+        },
+        body: JSON.stringify({ question }),
+      });
+
+      if (!response.ok) throw new Error('Chat request failed');
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      let assistantContent = '';
+      const assistantId = Date.now().toString();
+
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const content = line.slice(6);
+            assistantContent += content;
+
+            setMessages((prev) => {
+              const existing = prev.find((m) => m.id === assistantId);
+              if (existing) {
+                return prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: assistantContent }
+                    : m
+                );
+              } else {
+                return [
+                  ...prev,
+                  {
+                    id: assistantId,
+                    role: 'assistant',
+                    content: assistantContent,
+                    timestamp: new Date(),
+                  },
+                ];
+              }
+            });
+          }
+        }
+      }
     } catch (error) {
       console.error('Chat error:', error);
-      throw error;
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -37,3 +98,9 @@ export const useChat = () => {
     sendMessage,
   };
 };
+
+async function getAuthToken(): Promise<string> {
+  // This would get the actual auth token from Supabase
+  const token = localStorage.getItem('supabase_auth_token') || '';
+  return token;
+}

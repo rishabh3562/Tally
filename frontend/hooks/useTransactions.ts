@@ -1,35 +1,56 @@
-/**
- * useTransactions hook for transaction data management
- */
-
-import { useCallback } from 'react';
-import { Transaction } from '../types';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api';
+import { Transaction } from '@/types';
 
 interface TransactionFilters {
-  start?: string;
-  end?: string;
+  start_date?: string;
+  end_date?: string;
   category_id?: string;
   page?: number;
+  limit?: number;
 }
 
-export const useTransactions = () => {
-  const fetchTransactions = useCallback(async (_filters?: TransactionFilters) => {
-    // TODO: Implement fetch logic
-    try {
-      // const response = await api.get('/api/transactions', { params: filters });
-      // return response.data;
-    } catch (error) {
-      console.error('Fetch transactions error:', error);
-      throw error;
-    }
-  }, []);
+export const useTransactions = (filters?: TransactionFilters) => {
+  const queryClient = useQueryClient();
 
-  const updateTransaction = useCallback(async (_id: string, _data: Partial<Transaction>) => {
-    // TODO: Implement update logic
-  }, []);
+  const {
+    data,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ['transactions', filters],
+    queryFn: async () => {
+      const response = await apiClient.get('/api/transactions', { params: filters });
+      return response.data;
+    },
+  });
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: async ({ transactionId, categoryId, merchantCorrection }: {
+      transactionId: string;
+      categoryId: string;
+      merchantCorrection?: boolean;
+    }) => {
+      const response = await apiClient.patch(
+        `/api/transactions/${transactionId}/category`,
+        {
+          category_id: categoryId,
+          merchant_correction: merchantCorrection,
+        }
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+    },
+  });
 
   return {
-    fetchTransactions,
-    updateTransaction,
+    transactions: data?.data || [],
+    total: data?.total || 0,
+    isLoading,
+    error,
+    updateCategory: updateCategoryMutation.mutate,
+    isUpdating: updateCategoryMutation.isPending,
   };
 };

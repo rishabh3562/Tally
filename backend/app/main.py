@@ -5,10 +5,14 @@ FastAPI application entry point for Personal Finance OS backend
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import os
 from dotenv import load_dotenv
+from app.core.config import get_settings
+from app.api import accounts, transactions, events, chat, uploads
 
 load_dotenv()
+
+# Get settings
+settings = get_settings()
 
 # Create FastAPI app
 app = FastAPI(
@@ -20,14 +24,20 @@ app = FastAPI(
 )
 
 # Configure CORS
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(accounts.router)
+app.include_router(transactions.router)
+app.include_router(events.router)
+app.include_router(chat.router)
+app.include_router(uploads.router)
 
 
 # Health check endpoint
@@ -49,15 +59,6 @@ async def root():
     }
 
 
-# TODO: Add API route imports
-# from app.api import auth, transactions, events, chat, uploads
-# app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-# app.include_router(transactions.router, prefix="/api/transactions", tags=["transactions"])
-# app.include_router(events.router, prefix="/api/events", tags=["events"])
-# app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
-# app.include_router(uploads.router, prefix="/api/upload", tags=["uploads"])
-
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=settings.api_host, port=settings.api_port, reload=settings.debug)
