@@ -81,30 +81,21 @@ async def categorize_transaction(
                     "id", category_id
                 ).limit(1).execute()
                 if category.data:
-                    return category.data[0]["name"], 1.0
+                    return category.data[0]["name"], 0.95
         except Exception:
             pass
 
-    # Default: Other category with low confidence
-    return "Other", 0.3
+    # Default fallback
+    return "Other", 0.5
 
 
 async def get_category_id(
-    category_name: str, user_id: str, db: Client
+    category_name: str,
+    user_id: str,
+    db: Client,
 ) -> Optional[str]:
-    """
-    Get category ID by name (system or user-created).
-
-    Args:
-        category_name: Category name
-        user_id: User UUID
-        db: Supabase client
-
-    Returns:
-        Category ID or None if not found
-    """
+    """Get or create category by name."""
     try:
-        # Check system categories first
         response = db.table("categories").select("id").eq(
             "name", category_name
         ).eq("user_id", None).limit(1).execute()
@@ -120,6 +111,15 @@ async def get_category_id(
         if response.data:
             return response.data[0]["id"]
 
+        # Create default category if needed
+        insert_resp = db.table("categories").insert({
+            "name": category_name,
+            "user_id": None,
+            "icon": "📌",
+        }).execute()
+
+        if insert_resp.data:
+            return insert_resp.data[0]["id"]
     except Exception:
         pass
 

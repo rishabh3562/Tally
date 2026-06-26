@@ -151,7 +151,10 @@ async def explain_with_llm(
     Returns:
         Natural language explanation
     """
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except Exception:
+        return "I couldn't access system configuration. Please try again later."
 
     if not sql_result.get("success"):
         return "I couldn't query your data. Please try a different question."

@@ -8,8 +8,9 @@ from uuid import uuid4
 from app.core.database import get_supabase
 from app.core.auth import get_current_user
 from app.core.config import get_settings
+from app.core.openrouter_manager import OpenRouterClient
 from app.schemas.uploads import UploadResponse, JobStatusOut
-from app.pipeline.ingestion import run_ingestion
+from app.pipeline.ingestion_graph import IngestionAgent, IngestionState
 
 router = APIRouter(prefix="/api", tags=["uploads"])
 
@@ -91,18 +92,45 @@ async def upload_statement(
             detail=f"Failed to create job: {str(e)}",
         )
 
-    # Fire off ingestion in background
-    asyncio.create_task(
-        run_ingestion(
-            job_id,
-            file_bytes,
-            ext,
-            bank_code,
-            account_id,
-            user_id,
-            db,
-        )
-    )
+    # Fire off ingestion with new LangGraph agent
+    async def run_ingestion_agent():
+        try:
+            agent = IngestionAgent(llm_client=OpenRouterClient())
+            state: IngestionState = {
+                "job_id": job_id,
+                "user_id": user_id,
+                "account_id": account_id,
+                "file_bytes": file_bytes,
+                "file_ext": ext,
+                "bank_code": bank_code,
+                "db": db,
+                "llm_client": OpenRouterClient(),
+                "raw_transactions": [],
+                "parsed_count": 0,
+                "deduped_transactions": [],
+                "duplicates_skipped": 0,
+                "normalized_transactions": [],
+                "categorized_transactions": [],
+                "inserted_count": 0,
+                "errors": [],
+                "status": "processing",
+            }
+
+            result = await agent.run(state)
+
+            # Update job with final status
+            db.table("processing_jobs").update({
+                "status": result["status"],
+                "error": str(result["errors"]) if result["errors"] else None,
+                "finished_at": asyncio.get_event_loop().time(),
+            }).eq("id", job_id).execute()
+        except Exception as e:
+            db.table("processing_jobs").update({
+                "status": "failed",
+                "error": str(e),
+            }).eq("id", job_id).execute()
+
+    asyncio.create_task(run_ingestion_agent())
 
     return UploadResponse(
         job_id=job_id,

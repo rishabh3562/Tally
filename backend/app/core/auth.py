@@ -1,4 +1,4 @@
-"""Authentication and JWT token validation."""
+"""Authentication and JWT token validation with Supabase."""
 
 from fastapi import Depends, HTTPException, status, Header
 from jose import JWTError, jwt
@@ -9,10 +9,10 @@ async def get_current_user(
     authorization: str = Header(None),
 ) -> str:
     """
-    Validate JWT token from Authorization header and extract user_id (sub).
+    Validate Supabase JWT token from Authorization header and extract user_id.
 
     Args:
-        authorization: Authorization header with Bearer token
+        authorization: Authorization header with Bearer token (from Supabase Auth)
 
     Returns:
         user_id (str) from token 'sub' claim
@@ -32,19 +32,24 @@ async def get_current_user(
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            options={"verify_signature": True},
         )
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token",
+                detail="Invalid token: missing subject claim",
             )
-    except JWTError:
+        return user_id
+    except JWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            detail=f"Invalid or expired token: {str(e)}",
         )
-
-    return user_id
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Authentication failed: {str(e)}",
+        )

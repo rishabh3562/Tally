@@ -78,5 +78,5 @@ async def normalize_merchant(
         if re.search(pattern, normalized, re.IGNORECASE):
             return canonical
 
-    # No match found
+    # Default: return original merchant name
     return raw_merchant
