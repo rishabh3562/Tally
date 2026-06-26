@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api";
+import apiClient from "@/lib/api";
 import Link from "next/link";
 import { Calendar, DollarSign } from "lucide-react";
 
