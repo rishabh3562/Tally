@@ -1,21 +1,18 @@
 """Authentication and JWT token validation."""
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthCredentials
+from fastapi import Depends, HTTPException, status, Header
 from jose import JWTError, jwt
 from app.core.config import get_settings
 
-security = HTTPBearer()
-
 
 async def get_current_user(
-    credentials: HTTPAuthCredentials = Depends(security),
+    authorization: str = Header(None),
 ) -> str:
     """
-    Validate JWT token and extract user_id (sub).
+    Validate JWT token from Authorization header and extract user_id (sub).
 
     Args:
-        credentials: HTTP Bearer token from request header
+        authorization: Authorization header with Bearer token
 
     Returns:
         user_id (str) from token 'sub' claim
@@ -23,7 +20,13 @@ async def get_current_user(
     Raises:
         HTTPException: If token is invalid or expired
     """
-    token = credentials.credentials
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header",
+        )
+
+    token = authorization.replace("Bearer ", "")
     settings = get_settings()
 
     try:
