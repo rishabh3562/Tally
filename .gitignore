@@ -9,6 +9,7 @@ docs
 !README.md
 !**/README.md
 !SETUP.md
+!IMPLEMENTATION.md
 !docs/**/*.md
 # Claude Code
 .claude/
