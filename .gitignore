@@ -11,6 +11,7 @@ docs
 !SETUP.md
 !IMPLEMENTATION.md
 !AGENTS.md
+!TEST_GUIDE.md
 !docs/**/*.md
 # Claude Code
 .claude/
