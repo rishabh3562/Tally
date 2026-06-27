@@ -4,23 +4,49 @@
 *.swp
 *.swo
 *~
-docs
-*.md
-!README.md
-!**/README.md
-!SETUP.md
-!IMPLEMENTATION.md
-!AGENTS.md
-!TEST_GUIDE.md
-!docs/**/*.md
-# Claude Code
 .claude/
 
 # Local files
 ignore
 rough
 
-# Environment & Secrets
+# Documentation - Keep only essential README files
+docs/
+*.md
+!README.md
+!**/README.md
+
+# Environments & Secrets
+.env
+.env.local
+.env.*.local
+.env.*.secret
+backend/.env
+frontend/.env.local
+infrastructure/terraform/terraform.tfvars
+infrastructure/terraform/override.tfvars
+
+# AWS & Cloud Credentials
+.aws/
+~/.aws
+.aws/credentials
+.aws/config
+
+# IDE specific files
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+.DS_Store
+*.sublime-*
+
+# OS files
+Thumbs.db
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -204,6 +230,26 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Logs and test data
+*.log
+logs/
+tmp/
+temp/
+.tmp
+TEST_DATA.sql
+test_output.json
+
+# Large files / Binaries
+*.pdf
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.iso
+*.exe
+*.dll
+*.so
+
 # PyCharm
 #   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
@@ -254,3 +300,24 @@ backend/.next/
 backend/dist/
 backend/build/
 backend/.eggs/
+
+# Terraform
+infrastructure/terraform/.terraform/
+infrastructure/terraform/.terraform.lock.hcl
+infrastructure/terraform/terraform.tfstate
+infrastructure/terraform/terraform.tfstate.backup
+infrastructure/terraform/*.tfstate*
+infrastructure/terraform/override.tf
+infrastructure/terraform/override.tf.json
+infrastructure/terraform/*override.tf
+infrastructure/terraform/*override.tf.json
+infrastructure/terraform/.env
+infrastructure/terraform/.envrc
+infrastructure/terraform/crash.log
+infrastructure/terraform/crash.*.log
+infrastructure/terraform/override.tfvars
+infrastructure/terraform/override.tfvars.json
+infrastructure/terraform/.terraformrc
+infrastructure/terraform/terraform.rc
+infrastructure/terraform/*.tfplan
+infrastructure/terraform/tfplan*

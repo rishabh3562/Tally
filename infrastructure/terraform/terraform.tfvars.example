@@ -1,0 +1,7 @@
+# Copy this file to terraform.tfvars and customize as needed
+# terraform.tfvars should be added to .gitignore to prevent committing sensitive data
+
+aws_region    = "ap-south-1"
+instance_type = "t3.micro"
+instance_name = "tally-frontend"
+docker_image  = "dubeyrishabh108/tally-frontend:v1"

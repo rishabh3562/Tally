@@ -1,4 +1,5 @@
 terraform {
+  required_version = ">= 1.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -8,7 +9,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "ap-south-1"
+  region = var.aws_region
 }
 
 resource "aws_security_group" "tally_sg" {
@@ -25,7 +26,7 @@ resource "aws_security_group" "tally_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-     cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -37,29 +38,16 @@ resource "aws_security_group" "tally_sg" {
 }
 
 resource "aws_instance" "tally" {
-  ami           = "ami-0f58b397bc5c1f2e8" # Amazon Linux 2023 (Mumbai, verify latest)
-  instance_type = "t2.micro"
+  ami           = var.ami_id
+  instance_type = var.instance_type
 
   vpc_security_group_ids = [aws_security_group.tally_sg.id]
 
-  user_data = <<-EOF
-              #!/bin/bash
-              dnf update -y
-
-              dnf install -y docker
-
-              systemctl start docker
-              systemctl enable docker
-
-              docker pull dubeyrishabh108/tally-frontend:v1
-
-              docker run -d \
-                --name tally \
-                -p 80:3000 \
-                dubeyrishabh108/tally-frontend:v1
-              EOF
+  user_data = base64encode(templatefile("${path.module}/user_data.sh", {
+    docker_image = var.docker_image
+  }))
 
   tags = {
-    Name = "tally-frontend"
+    Name = var.instance_name
   }
 }
