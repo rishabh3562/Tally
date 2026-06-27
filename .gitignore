@@ -10,6 +10,7 @@ docs
 !**/README.md
 !SETUP.md
 !IMPLEMENTATION.md
+!AGENTS.md
 !docs/**/*.md
 # Claude Code
 .claude/
