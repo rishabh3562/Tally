@@ -10,7 +10,8 @@ from app.core.auth import get_current_user
 from app.core.config import get_settings
 from app.core.openrouter_manager import OpenRouterClient
 from app.schemas.uploads import UploadResponse, JobStatusOut
-from app.pipeline.ingestion_graph import IngestionAgent, IngestionState
+from app.agents.orchestrator import FinancialProcessingOrchestrator
+from app.agents.base import LLMConfig
 
 router = APIRouter(prefix="/api", tags=["uploads"])
 
@@ -92,39 +93,113 @@ async def upload_statement(
             detail=f"Failed to create job: {str(e)}",
         )
 
-    # Fire off ingestion with new LangGraph agent
+    # Fire off ingestion with new agent-based system
     async def run_ingestion_agent():
         try:
-            agent = IngestionAgent(llm_client=OpenRouterClient())
-            state: IngestionState = {
-                "job_id": job_id,
-                "user_id": user_id,
-                "account_id": account_id,
-                "file_bytes": file_bytes,
-                "file_ext": ext,
-                "bank_code": bank_code,
-                "db": db,
-                "llm_client": OpenRouterClient(),
-                "raw_transactions": [],
-                "parsed_count": 0,
-                "deduped_transactions": [],
-                "duplicates_skipped": 0,
-                "normalized_transactions": [],
-                "categorized_transactions": [],
-                "inserted_count": 0,
-                "errors": [],
-                "status": "processing",
-            }
+            # Create LLM config with Nemotron 3 Ultra
+            llm_config = LLMConfig(
+                api_key=settings.openrouter_api_key,
+                base_url=settings.openrouter_api_url,
+                model=settings.primary_llm_model,
+                temperature=0.3,
+                max_tokens=2000,
+            )
 
-            result = await agent.run(state)
+            # Create orchestrator
+            orchestrator = FinancialProcessingOrchestrator(llm_config)
 
-            # Update job with final status
+            # Parse file based on type
+            from app.services.parser import parse_pdf, parse_csv, parse_xlsx
+
+            if ext.lower() == "pdf":
+                raw_txs = parse_pdf(file_bytes, bank_code)
+            elif ext.lower() == "csv":
+                raw_txs = parse_csv(file_bytes, bank_code)
+            elif ext.lower() in ["xlsx", "xls"]:
+                raw_txs = parse_xlsx(file_bytes, bank_code)
+            else:
+                raise ValueError(f"Unsupported file type: {ext}")
+
+            if not raw_txs:
+                raise ValueError("No transactions found in file")
+
+            # Run through orchestrator pipeline
+            result = await orchestrator.process_statement(
+                raw_transactions=raw_txs,
+                bank_code=bank_code,
+                file_type=ext,
+            )
+
+            if not result.get("success"):
+                db.table("processing_jobs").update({
+                    "status": "failed",
+                    "error": result.get("error", "Processing failed"),
+                }).eq("id", job_id).execute()
+                return
+
+            # Insert transactions into database
+            transactions = result.get("transactions", [])
+            inserted_count = 0
+
+            for tx in transactions:
+                try:
+                    # Create fingerprint
+                    fingerprint = hashlib.sha256(
+                        f"{tx['date']}|{tx['amount']}|{tx['raw_merchant']}|{account_id}".encode()
+                    ).hexdigest()
+
+                    # Get or create category
+                    category_response = db.table("categories").select("id").eq(
+                        "name", tx.get("category", "Other")
+                    ).limit(1).execute()
+
+                    category_id = None
+                    if category_response.data:
+                        category_id = category_response.data[0]["id"]
+                    else:
+                        # Create category if doesn't exist
+                        cat_insert = db.table("categories").insert({
+                            "name": tx.get("category", "Other"),
+                            "user_id": None,
+                            "icon": "📌",
+                        }).execute()
+                        if cat_insert.data:
+                            category_id = cat_insert.data[0]["id"]
+
+                    # Insert transaction
+                    insert_data = {
+                        "user_id": user_id,
+                        "account_id": account_id,
+                        "date": tx["date"],
+                        "amount": tx["amount"],
+                        "currency": tx.get("currency", "INR"),
+                        "raw_merchant": tx["raw_merchant"],
+                        "category_id": category_id,
+                        "memo": tx.get("memo", ""),
+                        "fingerprint": fingerprint,
+                        "confidence_score": tx.get("confidence", 0.5),
+                        "is_transfer": False,
+                    }
+
+                    db.table("transactions").insert(insert_data).execute()
+                    inserted_count += 1
+                except Exception as e:
+                    print(f"Error inserting transaction: {e}")
+                    continue
+
+            # Update job status
             db.table("processing_jobs").update({
-                "status": result["status"],
-                "error": str(result["errors"]) if result["errors"] else None,
+                "status": "done",
+                "error": None,
                 "finished_at": asyncio.get_event_loop().time(),
             }).eq("id", job_id).execute()
+
+            print(f"Job {job_id}: Processed {result.get('parsed_count', 0)}, "
+                  f"Valid {result.get('valid_count', 0)}, "
+                  f"Inserted {inserted_count}")
+
         except Exception as e:
+            print(f"Ingestion error: {e}")
             db.table("processing_jobs").update({
                 "status": "failed",
                 "error": str(e),
