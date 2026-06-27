@@ -26,12 +26,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_hours: int = 24
 
-    # OpenRouter / LLM
+    # OpenRouter / LLM (primary: Nemotron 3 Ultra)
     openrouter_api_key: str
     openrouter_api_url: str = "https://openrouter.ai/api/v1"
-    primary_llm_model: str = "google/gemini-2.0-flash-exp"
+    primary_llm_model: str = "neomorph/nemotron-3-ultra"
     secondary_llm_model: str = "anthropic/claude-3-5-sonnet"
-    fallback_llm_model: str = "openrouter/auto"
+    fallback_llm_model: str = "google/gemini-2.0-flash-exp"
 
     # File Upload
     max_file_size_mb: int = 50

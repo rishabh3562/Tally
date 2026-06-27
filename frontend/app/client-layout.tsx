@@ -5,6 +5,7 @@ import { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import apiClient from "@/lib/api";
 import Header from "@/components/common/Header";
 import Sidebar from "@/components/common/Sidebar";
 
@@ -29,6 +30,14 @@ export default function ClientLayout({
         if (!user) {
           router.push("/auth/login");
           return;
+        }
+
+        // Initialize user profile in database if it doesn't exist
+        try {
+          await apiClient.get("/api/users/me");
+        } catch (error) {
+          console.error("Failed to initialize user profile:", error);
+          // Continue anyway - profile should have been created
         }
 
         setUser(user);

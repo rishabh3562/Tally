@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from app.core.config import get_settings
-from app.api import accounts, transactions, events, chat, uploads
+from app.api import accounts, transactions, events, chat, uploads, users
 
 load_dotenv()
 
@@ -33,6 +33,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(users.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
 app.include_router(events.router)
