@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, TrendingDown, FileText, MessageCircle, Upload, Bank } from "lucide-react";
+import { BarChart3, TrendingDown, FileText, MessageCircle, Upload, Banknote } from "lucide-react";
 
 const navigationItems = [
   {
@@ -13,7 +13,7 @@ const navigationItems = [
   {
     name: "Accounts",
     href: "/accounts",
-    icon: Bank,
+    icon: Banknote,
   },
   {
     name: "Transactions",

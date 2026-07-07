@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import Link from "next/link";
-import { TrendingDown, Wallet, DollarSign, Bank, Plus, ArrowRight } from "lucide-react";
+import { TrendingDown, Wallet, DollarSign, Banknote, Plus, ArrowRight } from "lucide-react";
 
 const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -77,7 +77,7 @@ export default function DashboardPage() {
       <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <Bank className="w-6 h-6 text-blue-600" />
+            <Banknote className="w-6 h-6 text-blue-600" />
             <h2 className="text-lg font-bold text-gray-900">My Accounts</h2>
           </div>
           <Link href="/accounts" className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">

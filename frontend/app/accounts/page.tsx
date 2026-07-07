@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
-import { Plus, Trash2, Bank, CreditCard, DollarSign, Send } from "lucide-react";
+import { Plus, Trash2, Banknote, CreditCard, DollarSign, Send } from "lucide-react";
 
 type AccountType = "Bank" | "CreditCard" | "UPI" | "Investment";
 
@@ -16,7 +16,7 @@ interface Account {
 }
 
 const ACCOUNT_TYPES: { value: AccountType; label: string; icon: React.ReactNode }[] = [
-  { value: "Bank", label: "Bank Account", icon: <Bank className="w-5 h-5" /> },
+  { value: "Bank", label: "Bank Account", icon: <Banknote className="w-5 h-5" /> },
   { value: "CreditCard", label: "Credit Card", icon: <CreditCard className="w-5 h-5" /> },
   { value: "UPI", label: "UPI Account", icon: <Send className="w-5 h-5" /> },
   { value: "Investment", label: "Investment", icon: <DollarSign className="w-5 h-5" /> },
@@ -101,7 +101,7 @@ export default function AccountsPage() {
 
   const getAccountIcon = (type: AccountType) => {
     const typeConfig = ACCOUNT_TYPES.find((t) => t.value === type);
-    return typeConfig?.icon || <Bank className="w-5 h-5" />;
+    return typeConfig?.icon || <Banknote className="w-5 h-5" />;
   };
 
   const getBankName = (code?: string) => {
@@ -231,7 +231,7 @@ export default function AccountsPage() {
           </div>
         ) : accounts.length === 0 ? (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
-            <Bank className="w-16 h-16 text-blue-400 mx-auto mb-4 opacity-50" />
+            <Banknote className="w-16 h-16 text-blue-400 mx-auto mb-4 opacity-50" />
             <p className="text-gray-600 font-medium mb-4">No accounts yet</p>
             <p className="text-gray-500 text-sm mb-6">Create your first account to start tracking transactions</p>
             <button
