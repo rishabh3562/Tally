@@ -35,9 +35,18 @@ export default function ClientLayout({
         // Initialize user profile in database if it doesn't exist
         try {
           await apiClient.get("/api/users/me");
-        } catch (error) {
-          console.error("Failed to initialize user profile:", error);
-          // Continue anyway - profile should have been created
+        } catch (error: any) {
+          // 401 = Unauthorized - JWT validation failed on backend
+          if (error.response?.status === 401) {
+            console.error("❌ Auth token validation failed. Backend JWT secret may not match Supabase.");
+            console.error("   Check SUPABASE_JWT_SECRET in backend/.env");
+            router.push("/auth/login");
+            return;
+          }
+
+          // Other errors (404, 500, etc) - log but continue
+          console.warn("⚠️ Profile initialization warning:", error.response?.status, error.message);
+          // Continue anyway - user is authenticated even if profile check fails
         }
 
         setUser(user);
