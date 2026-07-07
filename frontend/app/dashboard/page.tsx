@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import Link from "next/link";
-import { TrendingDown, Wallet, DollarSign } from "lucide-react";
+import { TrendingDown, Wallet, DollarSign, Bank, Plus, ArrowRight } from "lucide-react";
 
 const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -17,7 +17,16 @@ export default function DashboardPage() {
     },
   });
 
+  const { data: accountsData } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async () => {
+      const response = await apiClient.get("/api/accounts");
+      return response.data || [];
+    },
+  });
+
   const transactions = transactionsData?.data || [];
+  const accounts = accountsData || [];
 
   // Calculate category totals
   const categoryTotals = transactions.reduce((acc: Record<string, number>, tx: any) => {
@@ -62,6 +71,42 @@ export default function DashboardPage() {
         >
           + Upload Statement
         </Link>
+      </div>
+
+      {/* Accounts Overview */}
+      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Bank className="w-6 h-6 text-blue-600" />
+            <h2 className="text-lg font-bold text-gray-900">My Accounts</h2>
+          </div>
+          <Link href="/accounts" className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">
+            Manage <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        {accounts.length === 0 ? (
+          <div className="text-center py-4">
+            <p className="text-gray-600 mb-4">No accounts yet. Create one to get started!</p>
+            <Link
+              href="/accounts"
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
+            >
+              <Plus className="w-4 h-4" />
+              Add Account
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {accounts.map((account) => (
+              <div key={account.id} className="bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition">
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Account</p>
+                <p className="font-semibold text-gray-900">{account.name}</p>
+                <p className="text-xs text-gray-600 mt-2">{account.type}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Key Metrics */}

@@ -1,12 +1,96 @@
 """User management API routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from supabase import Client
 from app.core.database import get_supabase
 from app.core.auth import get_current_user
 from app.schemas.users import UserOut, UserPreferences
+from datetime import datetime
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+class SignUpRequest(BaseModel):
+  email: str
+  user_id: str
+
+
+class UserCreatedResponse(BaseModel):
+  id: str
+  email: str
+  preferences: dict
+  created_at: str
+  account: dict | None = None
+
+
+@router.post("/signup", response_model=UserCreatedResponse)
+async def create_user_on_signup(
+    request: SignUpRequest,
+    db: Client = Depends(get_supabase),
+):
+  """Create user profile and default account after Supabase auth signup."""
+  try:
+    user_id = request.user_id
+    email = request.email
+
+    # Check if user already exists
+    existing = db.table("users").select("id").eq("id", user_id).limit(1).execute()
+    if existing.data:
+      # User already exists, just return it
+      user = existing.data[0]
+      return UserCreatedResponse(
+        id=user["id"],
+        email=user["email"],
+        preferences=user.get("preferences", {}),
+        created_at=user.get("created_at", ""),
+      )
+
+    now = datetime.utcnow().isoformat()
+
+    # Create user profile in users table
+    user_insert = db.table("users").insert({
+      "id": user_id,
+      "email": email,
+      "preferences": {"default_currency": "INR", "theme": "light"},
+      "created_at": now,
+    }).execute()
+
+    if not user_insert.data:
+      raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Failed to create user profile",
+      )
+
+    user = user_insert.data[0]
+
+    # Create default account for the user
+    account_insert = db.table("accounts").insert({
+      "user_id": user_id,
+      "name": "My Account",
+      "type": "Bank",
+      "created_at": now,
+    }).execute()
+
+    account = None
+    if account_insert.data:
+      account = account_insert.data[0]
+
+    return UserCreatedResponse(
+      id=user["id"],
+      email=user["email"],
+      preferences=user.get("preferences", {}),
+      created_at=user.get("created_at", ""),
+      account=account,
+    )
+
+  except HTTPException:
+    raise
+  except Exception as e:
+    raise HTTPException(
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+      detail=f"Failed to create user profile: {str(e)}",
+    )
 
 
 @router.get("/me", response_model=UserOut)
@@ -14,9 +98,8 @@ async def get_current_user_profile(
     user_id: str = Depends(get_current_user),
     db: Client = Depends(get_supabase),
 ):
-    """Get current user profile, creating if necessary."""
+    """Get current user profile."""
     try:
-        # Try to get existing user
         response = db.table("users").select("*").eq("id", user_id).limit(1).execute()
 
         if response.data and len(response.data) > 0:
@@ -28,39 +111,9 @@ async def get_current_user_profile(
                 created_at=user["created_at"],
             )
 
-        # User doesn't exist in users table - create profile
-        # This handles the case where the trigger didn't fire
-        from datetime import datetime
-        now = datetime.utcnow().isoformat()
-
-        # Get user email from Supabase Auth
-        auth_user = await get_auth_user(user_id, db)
-        if not auth_user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in authentication system",
-            )
-
-        # Create user profile
-        insert_response = db.table("users").insert({
-            "id": user_id,
-            "email": auth_user.get("email", ""),
-            "preferences": {"default_currency": "INR", "theme": "light"},
-            "created_at": now,
-        }).execute()
-
-        if insert_response.data:
-            user = insert_response.data[0]
-            return UserOut(
-                id=user["id"],
-                email=user["email"],
-                preferences=user.get("preferences", {}),
-                created_at=user["created_at"],
-            )
-
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create user profile",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found",
         )
 
     except HTTPException:
@@ -115,16 +168,3 @@ async def update_user_preferences(
         )
 
 
-async def get_auth_user(user_id: str, db: Client) -> dict | None:
-    """Get user info from Supabase Auth."""
-    try:
-        # Query auth.users directly via RPC or by looking at user metadata
-        # For now, we'll rely on the JWT token having the email info
-        # In a real scenario, you'd have a function to query auth.users
-        # For MVP, we'll use a dummy email based on user_id
-        response = db.table("users").select("email").eq("id", user_id).limit(1).execute()
-        if response.data:
-            return response.data[0]
-        return None
-    except Exception:
-        return None

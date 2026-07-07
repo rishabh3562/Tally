@@ -48,3 +48,55 @@ async def create_account(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+@router.get("/{account_id}", response_model=AccountOut)
+async def get_account(
+    account_id: str,
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Get a specific account."""
+    try:
+        response = db.table("accounts").select("*").eq("id", account_id).eq("user_id", user_id).limit(1).execute()
+        if response.data:
+            return response.data[0]
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.delete("/{account_id}")
+async def delete_account(
+    account_id: str,
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Delete an account."""
+    try:
+        # Verify account belongs to user
+        verify = db.table("accounts").select("id").eq("id", account_id).eq("user_id", user_id).limit(1).execute()
+        if not verify.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Account not found",
+            )
+
+        # Delete account
+        db.table("accounts").delete().eq("id", account_id).execute()
+        return {"message": "Account deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )

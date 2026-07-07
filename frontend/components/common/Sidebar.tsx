@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, TrendingDown, FileText, MessageCircle, Upload } from "lucide-react";
+import { BarChart3, TrendingDown, FileText, MessageCircle, Upload, Bank } from "lucide-react";
 
 const navigationItems = [
   {
     name: "Dashboard",
     href: "/dashboard",
     icon: BarChart3,
+  },
+  {
+    name: "Accounts",
+    href: "/accounts",
+    icon: Bank,
   },
   {
     name: "Transactions",
