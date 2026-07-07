@@ -23,94 +23,74 @@ export default function ClientLayout({
   const isAuthenticating = useRef(false);
 
   useEffect(() => {
-    // Prevent multiple simultaneous auth checks
-    if (isAuthenticating.current || hasCheckedAuth.current) {
-      return;
-    }
+    let unsubscribe: (() => void) | null = null;
 
-    const checkAuth = async () => {
-      isAuthenticating.current = true;
+    // Listen for auth state changes - this handles INITIAL_SESSION + all changes
+    const setupAuth = () => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          console.log(`🔔 Auth event: ${event}`, session ? "with session" : "no session");
 
-      try {
-        console.log("🔍 Checking authentication status...");
+          // INITIAL_SESSION fires on mount with the actual session state
+          if (event === "INITIAL_SESSION") {
+            if (!session) {
+              console.log("⚠️ No session - redirecting to login");
+              setIsLoading(false);
+              router.push("/auth/login");
+              return;
+            }
 
-        const {
-          data: { user: currentUser, session },
-        } = await supabase.auth.getSession();
+            console.log(`✅ Session found for ${session.user?.email}`);
 
-        // No session = not logged in
-        if (!session || !currentUser) {
-          console.log("⚠️ No active session - redirecting to login");
-          setIsLoading(false);
-          hasCheckedAuth.current = true;
-          router.push("/auth/login");
-          return;
-        }
+            // Validate token with backend
+            try {
+              console.log("🔐 Validating token with backend...");
+              await apiClient.get("/api/users/me");
+              console.log("✅ Backend validation successful");
+              setUser(session.user);
+            } catch (error: any) {
+              if (error.response?.status === 401) {
+                console.error("❌ CRITICAL: JWT signature mismatch!");
+                console.error("   Action needed: Update SUPABASE_JWT_SECRET in backend/.env");
+                console.error("   Get correct secret from: https://app.supabase.com → Settings → Auth → JWT Secret");
+                await supabase.auth.signOut();
+                router.push("/auth/login");
+                setIsLoading(false);
+                return;
+              }
+              // Other errors - continue anyway
+              console.warn(`⚠️ Profile check warning (${error.response?.status}):`, error.message);
+              setUser(session.user);
+            }
 
-        console.log(`✅ Session found for ${currentUser.email}`);
-
-        // Verify backend can validate our token
-        try {
-          console.log("🔐 Validating token with backend...");
-          await apiClient.get("/api/users/me");
-          console.log("✅ Backend validation successful");
-        } catch (error: any) {
-          if (error.response?.status === 401) {
-            console.error("❌ CRITICAL: JWT signature mismatch!");
-            console.error("   Action needed: Update SUPABASE_JWT_SECRET in backend/.env");
-            console.error("   Get correct secret from: https://app.supabase.com → Settings → Auth → JWT Secret");
-
-            // Sign out to clear invalid session
-            await supabase.auth.signOut();
             setIsLoading(false);
-            hasCheckedAuth.current = true;
-            router.push("/auth/login");
-            return;
           }
-
-          // Other errors: log but continue
-          console.warn(`⚠️ Backend check failed (${error.response?.status}):`, error.message);
+          // Handle sign out
+          else if (event === "SIGNED_OUT") {
+            console.log("👋 User signed out");
+            setUser(null);
+            setIsLoading(false);
+            router.push("/auth/login");
+          }
+          // Handle sign in (from login page)
+          else if (event === "SIGNED_IN" && session) {
+            console.log(`📝 User signed in: ${session.user?.email}`);
+            setUser(session.user);
+            setIsLoading(false);
+          }
         }
+      );
 
-        // Auth successful - set user
-        setUser(currentUser);
-        console.log("✅ Auth check complete - user authenticated");
-      } catch (error) {
-        console.error("❌ Unexpected auth error:", error);
-        router.push("/auth/login");
-      } finally {
-        setIsLoading(false);
-        hasCheckedAuth.current = true;
-        isAuthenticating.current = false;
-      }
+      unsubscribe = subscription?.unsubscribe || null;
     };
 
-    checkAuth();
-
-    // Listen for auth state changes (e.g., logout from another tab)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log(`🔔 Auth event: ${event}`, session ? "with session" : "no session");
-
-        if (event === "SIGNED_OUT" || !session) {
-          console.log("👋 User signed out");
-          setUser(null);
-          setIsLoading(false);
-          router.push("/auth/login");
-        } else if (event === "SIGNED_IN" && session) {
-          console.log(`📝 User signed in: ${session.user?.email}`);
-          // Don't re-check immediately - just update user
-          setUser(session.user);
-          setIsLoading(false);
-        }
-      }
-    );
+    setupAuth();
 
     return () => {
-      subscription?.unsubscribe();
+      unsubscribe?.();
     };
     // Empty dependency array - only run once on mount
-  }, []);
+  }, [router]);
 
   if (isLoading) {
     return (
