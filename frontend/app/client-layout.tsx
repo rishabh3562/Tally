@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import apiClient from "@/lib/api";
@@ -19,50 +19,89 @@ export default function ClientLayout({
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const hasCheckedAuth = useRef(false);
+  const isAuthenticating = useRef(false);
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+    // Prevent multiple simultaneous auth checks
+    if (isAuthenticating.current || hasCheckedAuth.current) {
+      return;
+    }
 
-        if (!user) {
+    const checkAuth = async () => {
+      isAuthenticating.current = true;
+
+      try {
+        console.log("🔍 Checking authentication status...");
+
+        const {
+          data: { user: currentUser, session },
+        } = await supabase.auth.getSession();
+
+        // No session = not logged in
+        if (!session || !currentUser) {
+          console.log("⚠️ No active session - redirecting to login");
+          setIsLoading(false);
+          hasCheckedAuth.current = true;
           router.push("/auth/login");
           return;
         }
 
-        // Initialize user profile in database if it doesn't exist
+        console.log(`✅ Session found for ${currentUser.email}`);
+
+        // Verify backend can validate our token
         try {
+          console.log("🔐 Validating token with backend...");
           await apiClient.get("/api/users/me");
+          console.log("✅ Backend validation successful");
         } catch (error: any) {
-          // 401 = Unauthorized - JWT validation failed on backend
           if (error.response?.status === 401) {
-            console.error("❌ Auth token validation failed. Backend JWT secret may not match Supabase.");
-            console.error("   Check SUPABASE_JWT_SECRET in backend/.env");
+            console.error("❌ CRITICAL: JWT signature mismatch!");
+            console.error("   Action needed: Update SUPABASE_JWT_SECRET in backend/.env");
+            console.error("   Get correct secret from: https://app.supabase.com → Settings → Auth → JWT Secret");
+
+            // Sign out to clear invalid session
+            await supabase.auth.signOut();
+            setIsLoading(false);
+            hasCheckedAuth.current = true;
             router.push("/auth/login");
             return;
           }
 
-          // Other errors (404, 500, etc) - log but continue
-          console.warn("⚠️ Profile initialization warning:", error.response?.status, error.message);
-          // Continue anyway - user is authenticated even if profile check fails
+          // Other errors: log but continue
+          console.warn(`⚠️ Backend check failed (${error.response?.status}):`, error.message);
         }
 
-        setUser(user);
+        // Auth successful - set user
+        setUser(currentUser);
+        console.log("✅ Auth check complete - user authenticated");
       } catch (error) {
+        console.error("❌ Unexpected auth error:", error);
         router.push("/auth/login");
       } finally {
         setIsLoading(false);
+        hasCheckedAuth.current = true;
+        isAuthenticating.current = false;
       }
     };
 
     checkAuth();
 
+    // Listen for auth state changes (e.g., logout from another tab)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (!session) {
+      async (event, session) => {
+        console.log(`🔔 Auth event: ${event}`, session ? "with session" : "no session");
+
+        if (event === "SIGNED_OUT" || !session) {
+          console.log("👋 User signed out");
+          setUser(null);
+          setIsLoading(false);
           router.push("/auth/login");
+        } else if (event === "SIGNED_IN" && session) {
+          console.log(`📝 User signed in: ${session.user?.email}`);
+          // Don't re-check immediately - just update user
+          setUser(session.user);
+          setIsLoading(false);
         }
       }
     );
@@ -70,7 +109,8 @@ export default function ClientLayout({
     return () => {
       subscription?.unsubscribe();
     };
-  }, [router]);
+    // Empty dependency array - only run once on mount
+  }, []);
 
   if (isLoading) {
     return (

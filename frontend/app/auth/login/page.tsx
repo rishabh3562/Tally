@@ -29,27 +29,31 @@ export default function LoginPage() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
     setLoading(true);
 
     if (!validateEmail(email)) {
-      setError("Please enter a valid email address");
+      setError("❌ Please enter a valid email address");
       setLoading(false);
       return;
     }
 
     if (!password) {
-      setError("Please enter your password");
+      setError("❌ Please enter your password");
       setLoading(false);
       return;
     }
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      console.log(`🔐 Attempting login with ${email}...`);
+
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (signInError) {
+        console.error(`❌ Login failed: ${signInError.message}`);
         if (signInError.message.includes("Invalid login credentials")) {
           setError("❌ Email or password is incorrect");
         } else {
@@ -59,11 +63,26 @@ export default function LoginPage() {
         return;
       }
 
+      if (!data.session) {
+        console.error("❌ No session returned after login");
+        setError("❌ Login failed - no session created");
+        setLoading(false);
+        return;
+      }
+
+      console.log(`✅ Login successful! Session created for ${data.user?.email}`);
+      console.log("🎯 Token obtained, redirecting to dashboard...");
+
       setSuccess("✅ Logged in! Redirecting...");
-      setTimeout(() => router.push("/dashboard"), 1000);
+
+      // Wait a bit for session to be fully established, then redirect
+      setTimeout(() => {
+        console.log("📍 Navigating to dashboard...");
+        router.push("/dashboard");
+      }, 500);
     } catch (err) {
+      console.error("❌ Unexpected login error:", err);
       setError("❌ Login failed. Please try again.");
-      console.error(err);
       setLoading(false);
     }
   };
