@@ -90,7 +90,7 @@ export default function ClientLayout({
       unsubscribe?.();
     };
     // Empty dependency array - only run once on mount
-  }, [router]);
+  }, []);
 
   if (isLoading) {
     return (
