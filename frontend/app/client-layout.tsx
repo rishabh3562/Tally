@@ -9,7 +9,24 @@ import apiClient from "@/lib/api";
 import Header from "@/components/common/Header";
 import Sidebar from "@/components/common/Sidebar";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Treat data as fresh for 30s so navigating between pages (each of which
+      // queries e.g. ["accounts"]) doesn't refire the same request every mount.
+      staleTime: 30_000,
+      // Don't refetch every time the browser tab regains focus.
+      refetchOnWindowFocus: false,
+      // Don't retry client errors (4xx) — they won't succeed on retry and just
+      // create request storms (e.g. the old 422 on transactions).
+      retry: (failureCount, error: any) => {
+        const status = error?.response?.status;
+        if (status >= 400 && status < 500) return false;
+        return failureCount < 2;
+      },
+    },
+  },
+});
 
 // Routes that render without the auth gate or app chrome (login/signup live here).
 const PUBLIC_PREFIXES = ["/auth"];

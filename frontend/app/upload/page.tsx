@@ -29,7 +29,13 @@ export default function UploadPage() {
       return response.data;
     },
     enabled: !!jobId,
-    refetchInterval: jobId ? 2000 : false,
+    // Poll every 2s while the job is still running, then STOP once it reaches a
+    // terminal state — otherwise it hammers /api/jobs/{id} forever.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === "done" || status === "failed") return false;
+      return 2000;
+    },
   });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
