@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS transactions (
   fingerprint TEXT UNIQUE NOT NULL,
   is_transfer BOOLEAN DEFAULT FALSE,
   confidence_score REAL DEFAULT 1.0,
+  -- Richer datapoints captured at ingestion (esp. from UPI/GPay statements).
+  upi_transaction_id TEXT,             -- first-class UPI reference id (was memo-only)
+  txn_time TIME,                       -- time-of-day when available
+  direction TEXT CHECK (direction IN ('debit', 'credit')),
+  counterparty TEXT,                   -- cleaned payee/payer name
+  funding_source TEXT,                 -- e.g. "Paid by State Bank of India 9112"
+  source_job_id UUID REFERENCES processing_jobs(id) ON DELETE SET NULL,  -- provenance / correlation
+  source_file_path TEXT,               -- path in the statements Storage bucket
+  group_id UUID,                       -- clubbing collective payments (set by analytics)
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -155,6 +164,9 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_category ON transactions(user_id, category_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_fingerprint ON transactions(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_transactions_upi_txn_id ON transactions(upi_transaction_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_source_job ON transactions(source_job_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id);
 CREATE INDEX IF NOT EXISTS idx_events_user_id ON events(user_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_learning_records_user_merchant ON learning_records(user_id, raw_merchant);

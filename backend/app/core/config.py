@@ -28,17 +28,31 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
 
-    # OpenRouter / LLM (primary: Nemotron 3 Ultra)
-    openrouter_api_key: str
+    # LLM providers.
+    # Primary path is Google Gemini (Google AI Studio) with KEY ROTATION: put
+    # several free-tier keys in GEMINI_API_KEYS (comma-separated); the client
+    # round-robins and advances on quota/429. When every Gemini key is cooling
+    # down, it falls back to OpenRouter's free Nemotron model. See llm_client.py.
+    gemini_api_keys: str = ""  # comma-separated Google AI Studio keys
+    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_model: str = "gemini-2.0-flash"
+
+    openrouter_api_key: Optional[str] = None
     openrouter_api_url: str = "https://openrouter.ai/api/v1"
-    primary_llm_model: str = "neomorph/nemotron-3-ultra"
-    secondary_llm_model: str = "anthropic/claude-3-5-sonnet"
-    fallback_llm_model: str = "google/gemini-2.0-flash-exp"
+    # OpenRouter fallback model. Free tier keeps categorization cost at zero.
+    # Verified slug (a made-up slug 404s): nvidia/nemotron-3-ultra-550b-a55b:free
+    openrouter_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+
+    # Kept for backwards-compat with existing chat_service.py references.
+    primary_llm_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
     # File Upload
     max_file_size_mb: int = 50
     upload_timeout_seconds: int = 300
     allowed_file_types: str = "pdf,csv,xlsx"
+    # Private Supabase Storage bucket where original statements are archived for
+    # reprocess/audit/provenance. Create it once (private) in the dashboard.
+    supabase_statements_bucket: str = "statements"
 
     # Feature Flags
     enable_ocr: bool = False  # MVP: no OCR
@@ -70,6 +84,11 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         """Get CORS origins as list."""
         return [origin.strip() for origin in self.cors_origins.split(",")]
+
+    @property
+    def gemini_keys_list(self) -> list[str]:
+        """Google AI Studio keys for rotation (empty list disables Gemini)."""
+        return [k.strip() for k in self.gemini_api_keys.split(",") if k.strip()]
 
 
 @lru_cache(maxsize=1)

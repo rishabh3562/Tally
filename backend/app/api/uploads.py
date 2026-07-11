@@ -15,10 +15,42 @@ from app.schemas.uploads import UploadResponse, JobStatusOut
 from app.services.parser import parse_pdf, parse_csv, parse_xlsx
 from app.services.categorizer import categorize_transaction
 from app.services.deduplicator import fingerprint
+from app.services.storage import archive_statement
 
 logger = logging.getLogger("tally.ingestion")
 
 router = APIRouter(prefix="/api", tags=["uploads"])
+
+# Columns added by migration 001. If the DB hasn't been migrated yet, inserts
+# with these keys fail; we strip them and retry so ingestion still works.
+_EXTENDED_TX_KEYS = (
+    "counterparty", "direction", "upi_transaction_id", "txn_time",
+    "funding_source", "source_job_id", "source_file_path", "group_id",
+)
+
+
+def _insert_transactions(db: Client, rows: list[dict]) -> None:
+    """Bulk-insert a chunk, retrying without migration-001 columns if needed.
+
+    Raises on a genuine failure so the caller can fall back to row-by-row and
+    record which rows failed.
+    """
+    try:
+        db.table("transactions").insert(rows).execute()
+    except Exception as e:
+        msg = str(e).lower()
+        if any(k in msg for k in _EXTENDED_TX_KEYS) or "column" in msg or "schema cache" in msg:
+            stripped = [
+                {k: v for k, v in row.items() if k not in _EXTENDED_TX_KEYS}
+                for row in rows
+            ]
+            db.table("transactions").insert(stripped).execute()
+            logger.warning(
+                "transactions extended columns missing — run migration 001 to "
+                "capture UPI id / direction / provenance. Inserted base fields only."
+            )
+            return
+        raise
 
 
 def _update_job(db: Client, job_id: str, **fields) -> None:
@@ -179,6 +211,11 @@ async def _run_ingestion(
 
     try:
         _update_job(db, job_id, status="processing")
+
+        # Archive the original file first (best-effort provenance / reprocess).
+        source_file_path = archive_statement(db, user_id, job_id, ext, file_bytes)
+        stats["source_file_path"] = source_file_path
+
         logger.info(f"job {job_id}: parsing {ext} (bank_code={bank_code})")
 
         # 1) Parse (deterministic)
@@ -237,12 +274,19 @@ async def _run_ingestion(
             category_id_cache[name] = cid
             return cid
 
+        # Categorization is deterministic per merchant string, so memoize it to
+        # avoid ~1 DB lookup per transaction (513 -> ~unique-merchant count).
+        merchant_category_cache: dict[str, tuple[str, float]] = {}
+        rows: list[dict] = []
+
         for tx in raw_txs:
-            # Include the memo (which carries the UPI/reference id for GPay) so
-            # distinct same-day, same-amount payments aren't treated as dupes.
+            # Prefer the first-class UPI transaction id as the distinguishing
+            # token so genuine same-day / same-amount payments aren't collapsed;
+            # fall back to the memo for non-UPI statements.
+            distinguisher = tx.get("upi_transaction_id") or tx.get("memo", "")
             fp = fingerprint(
                 tx["date"], tx["amount"], tx["raw_merchant"], account_id,
-                tx.get("memo", ""),
+                distinguisher,
             )
             if fp in existing_fps:
                 stats["duplicates_skipped"] += 1
@@ -257,32 +301,58 @@ async def _run_ingestion(
                 stats["debit_count"] += 1
                 stats["debit_total"] += tx["amount"]
 
-            category, confidence = await categorize_transaction(
-                tx["raw_merchant"], tx["amount"], tx.get("memo"), db
-            )
+            merchant = tx["raw_merchant"]
+            if merchant in merchant_category_cache:
+                category, confidence = merchant_category_cache[merchant]
+            else:
+                category, confidence = await categorize_transaction(
+                    merchant, tx["amount"], tx.get("memo"), db
+                )
+                merchant_category_cache[merchant] = (category, confidence)
             stats["categories"][category] = stats["categories"].get(category, 0) + 1
 
+            rows.append({
+                "user_id": user_id,
+                "account_id": account_id,
+                "date": tx["date"].isoformat() if hasattr(tx["date"], "isoformat") else tx["date"],
+                "amount": tx["amount"],
+                "currency": tx.get("currency", "INR"),
+                "raw_merchant": merchant,
+                "counterparty": tx.get("counterparty") or merchant,
+                "category_id": resolve_category_id(category),
+                "memo": tx.get("memo", ""),
+                "fingerprint": fp,
+                "confidence_score": confidence,
+                "is_transfer": False,
+                "direction": tx.get("direction"),
+                "upi_transaction_id": tx.get("upi_transaction_id"),
+                "txn_time": tx.get("txn_time"),
+                "funding_source": tx.get("funding_source"),
+                "source_job_id": job_id,
+                "source_file_path": source_file_path,
+            })
+
+        # Bulk insert in chunks (previously 1 round-trip per row -> hundreds).
+        CHUNK = 100
+        for start in range(0, len(rows), CHUNK):
+            chunk = rows[start:start + CHUNK]
             try:
-                db.table("transactions").insert({
-                    "user_id": user_id,
-                    "account_id": account_id,
-                    "date": tx["date"].isoformat() if hasattr(tx["date"], "isoformat") else tx["date"],
-                    "amount": tx["amount"],
-                    "currency": tx.get("currency", "INR"),
-                    "raw_merchant": tx["raw_merchant"],
-                    "category_id": resolve_category_id(category),
-                    "memo": tx.get("memo", ""),
-                    "fingerprint": fp,
-                    "confidence_score": confidence,
-                    "is_transfer": False,
-                }).execute()
-                stats["inserted"] += 1
-                if stats["inserted"] % 100 == 0:
-                    logger.info(f"job {job_id}: inserted {stats['inserted']}...")
-            except Exception as e:
-                stats["failed"] += 1
-                if len(stats["errors"]) < 5:
-                    stats["errors"].append(f"{tx['raw_merchant']} on {tx['date']}: {e}")
+                _insert_transactions(db, chunk)
+                stats["inserted"] += len(chunk)
+                logger.info(f"job {job_id}: inserted {stats['inserted']}/{len(rows)}")
+            except Exception:
+                # One bad row shouldn't lose the whole chunk — retry row-by-row
+                # and record which ones actually failed.
+                for row in chunk:
+                    try:
+                        _insert_transactions(db, [row])
+                        stats["inserted"] += 1
+                    except Exception as row_err:
+                        stats["failed"] += 1
+                        if len(stats["errors"]) < 5:
+                            stats["errors"].append(
+                                f"{row['raw_merchant']} on {row['date']}: {row_err}"
+                            )
 
         finish(
             "done",
@@ -293,6 +363,78 @@ async def _run_ingestion(
     except Exception as e:
         logger.exception(f"job {job_id}: ingestion crashed")
         finish("failed", f"Processing error: {e}", error=str(e))
+
+
+@router.get("/jobs", response_model=list[JobStatusOut])
+async def list_jobs(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """List the current user's processing jobs, newest first."""
+    try:
+        response = db.table("processing_jobs").select("*").eq(
+            "user_id", user_id
+        ).order("created_at", desc=True).limit(100).execute()
+
+        out: list[JobStatusOut] = []
+        for job in response.data or []:
+            job_stats = job.get("stats") or {}
+            out.append(JobStatusOut(
+                job_id=job["id"],
+                status=job["status"],
+                error=job.get("error"),
+                message=job_stats.get("message"),
+                stats=job_stats or None,
+                created_at=job["created_at"],
+                finished_at=job.get("finished_at"),
+            ))
+        return out
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.get("/jobs/{job_id}/transactions")
+async def get_job_transactions(
+    job_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Transactions imported by a specific job (correlation via source_job_id)."""
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    try:
+        resp = db.table("transactions").select(
+            "id,date,amount,currency,raw_merchant,memo,upi_transaction_id,"
+            "direction,categories(name)",
+            count="exact",
+        ).eq("source_job_id", job_id).eq("user_id", user_id).order(
+            "date", desc=True
+        ).range(offset, offset + limit - 1).execute()
+
+        items = []
+        for r in resp.data or []:
+            cat = r.get("categories")
+            items.append({
+                "id": r["id"],
+                "date": r["date"],
+                "amount": r["amount"],
+                "currency": r.get("currency", "INR"),
+                "raw_merchant": r.get("raw_merchant"),
+                "memo": r.get("memo"),
+                "category": cat.get("name") if isinstance(cat, dict) else None,
+                "upi_transaction_id": r.get("upi_transaction_id"),
+                "direction": r.get("direction"),
+            })
+        return {"total": resp.count or len(items), "items": items}
+    except Exception as e:
+        # Most likely cause pre-migration: source_job_id column doesn't exist.
+        logger.warning(f"job {job_id}: transactions query failed: {e}")
+        return {"total": 0, "items": []}
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusOut)

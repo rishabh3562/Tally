@@ -1,8 +1,16 @@
 """Transaction categorization service."""
 
+import logging
 import re
 from typing import Tuple, Optional
 from supabase import Client
+
+from app.services import llm_client
+
+logger = logging.getLogger("tally.categorizer")
+
+# Batch size for LLM categorization: how many unique merchants per call.
+_LLM_BATCH = 40
 
 
 # Hardcoded merchant-to-category rules (confidence 1.0)
@@ -87,6 +95,56 @@ async def categorize_transaction(
 
     # Default fallback
     return "Other", 0.5
+
+
+async def llm_categorize_merchants(
+    merchants: list[str],
+    valid_categories: list[str],
+) -> dict[str, str]:
+    """Categorize many unique merchants with the LLM in a few batched calls.
+
+    Rather than one LLM call per transaction (hundreds, slow, costly), we send
+    the *unique* merchant strings in chunks of ``_LLM_BATCH`` and ask for a JSON
+    ``{merchant: category}`` map. Any merchant the model omits or maps to an
+    unknown category is left out (caller keeps its existing category).
+
+    Returns an empty dict if no LLM provider is available.
+    """
+    if not merchants or not llm_client.is_available():
+        return {}
+
+    allowed = set(valid_categories)
+    result: dict[str, str] = {}
+
+    for i in range(0, len(merchants), _LLM_BATCH):
+        chunk = merchants[i : i + _LLM_BATCH]
+        prompt = (
+            "You categorize bank/UPI transaction merchants for a personal finance "
+            "app. Choose the single best category for each merchant strictly from "
+            "this list:\n"
+            f"{', '.join(valid_categories)}\n\n"
+            "Respond as strict JSON: an object mapping each merchant name exactly "
+            'as given to one category from the list. Example: {"Swiggy": "Food & '
+            'Dining"}. Merchants:\n'
+            f"{chr(10).join('- ' + m for m in chunk)}"
+        )
+        try:
+            data = await llm_client.acomplete_json(prompt, max_tokens=1500)
+        except Exception as e:
+            logger.warning("[categorizer] LLM batch failed: %s", e)
+            continue
+        if not isinstance(data, dict):
+            continue
+        for merchant in chunk:
+            cat = data.get(merchant)
+            if isinstance(cat, str) and cat in allowed:
+                result[merchant] = cat
+
+    logger.info(
+        "[categorizer] LLM categorized %d/%d unique merchants",
+        len(result), len(merchants),
+    )
+    return result
 
 
 async def get_category_id(

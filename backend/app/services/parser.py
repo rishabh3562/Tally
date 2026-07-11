@@ -59,6 +59,7 @@ _GPAY_HEADER = re.compile(
 )
 _GPAY_TXN_ID = re.compile(r'UPI\s*Transaction\s*ID[:\s]*(\d+)', re.IGNORECASE)
 _GPAY_FUNDING = re.compile(r'Paid ?(?:by|to)\s*(.+)', re.IGNORECASE)
+_GPAY_TIME = re.compile(r'(\d{1,2}):(\d{2})\s*([AP]M)', re.IGNORECASE)
 
 
 def looks_like_gpay(text: str) -> bool:
@@ -76,7 +77,9 @@ def parse_gpay_text(text: str) -> List[Dict[str, Any]]:
 
     Money out ("Paid to") is stored as a positive amount (an expense); money in
     ("Received from") is stored negative, matching the app's spending-sum
-    convention. Direction + UPI id + funding source are preserved in the memo.
+    convention. Direction, UPI transaction id, time-of-day and funding source are
+    now returned as first-class fields (and still summarised in the memo for
+    human display).
     """
     lines = text.split("\n")
     transactions: List[Dict[str, Any]] = []
@@ -99,19 +102,26 @@ def parse_gpay_text(text: str) -> List[Dict[str, Any]]:
 
         is_credit = direction.replace(" ", "").lower() == "receivedfrom"
 
-        # Look ahead a couple of lines for the UPI id and funding source.
+        # Look ahead a couple of lines for the UPI id, time and funding source.
         txn_id = None
         funding = None
+        txn_time = None
         for j in (i + 1, i + 2):
             if j < len(lines):
                 if not txn_id:
                     tid = _GPAY_TXN_ID.search(lines[j])
                     if tid:
                         txn_id = tid.group(1)
+                if not txn_time:
+                    tm = _GPAY_TIME.search(lines[j])
+                    if tm:
+                        txn_time = _to_24h(tm.group(1), tm.group(2), tm.group(3))
                 if "Paidby" in lines[j].replace(" ", ""):
                     funding = lines[j].strip()
 
-        memo_parts = ["Received from" if is_credit else "Paid to", merchant.strip()]
+        merchant = merchant.strip()
+        direction_label = "credit" if is_credit else "debit"
+        memo_parts = ["Received from" if is_credit else "Paid to", merchant]
         if txn_id:
             memo_parts.append(f"UPI:{txn_id}")
         if funding:
@@ -120,12 +130,25 @@ def parse_gpay_text(text: str) -> List[Dict[str, Any]]:
         transactions.append({
             "date": date_obj,
             "amount": -amount if is_credit else amount,
-            "raw_merchant": merchant.strip(),
+            "raw_merchant": merchant,
+            "counterparty": merchant,
             "memo": " | ".join(memo_parts),
             "currency": "INR",
+            "direction": direction_label,
+            "upi_transaction_id": txn_id,
+            "txn_time": txn_time,
+            "funding_source": funding,
         })
 
     return transactions
+
+
+def _to_24h(hour: str, minute: str, meridiem: str) -> str:
+    """Convert '11', '39', 'PM' -> '23:39:00' (a Postgres TIME literal)."""
+    h = int(hour) % 12
+    if meridiem.upper() == "PM":
+        h += 12
+    return f"{h:02d}:{int(minute):02d}:00"
 
 
 def parse_pdf(file_bytes: bytes, bank_code: str = "HDFC") -> List[Dict[str, Any]]:
