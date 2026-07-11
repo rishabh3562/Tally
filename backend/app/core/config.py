@@ -1,5 +1,7 @@
 """Configuration management for Personal Finance OS."""
 
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 from typing import Optional
 
@@ -13,18 +15,18 @@ class Settings(BaseSettings):
 
     # Supabase
     supabase_url: str
-    supabase_key: str  # Service role key
-    supabase_jwt_secret: str
+    # Server-side secret key. New projects: sb_secret_... from
+    # Dashboard -> Settings -> API Keys. Legacy projects: service_role JWT.
+    supabase_key: str
+    # Only needed for LEGACY projects that still sign user tokens with a shared
+    # HS256 secret. Projects migrated to asymmetric signing keys (ES256/RS256)
+    # verify via JWKS and never use this — hence optional.
+    supabase_jwt_secret: Optional[str] = None
 
     # API
     api_port: int = 8000
     api_host: str = "0.0.0.0"
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
-
-    # JWT / Security
-    jwt_secret_key: str
-    jwt_algorithm: str = "HS256"
-    jwt_expiration_hours: int = 24
 
     # OpenRouter / LLM (primary: Nemotron 3 Ultra)
     openrouter_api_key: str
@@ -55,6 +57,9 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        # Ignore unrelated / leftover env vars (e.g. old JWT_* keys) instead of
+        # refusing to boot — keeps startup resilient to stale .env entries.
+        extra = "ignore"
 
     @property
     def allowed_extensions(self) -> set[str]:
@@ -67,6 +72,7 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",")]
 
 
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Get application settings singleton."""
+    """Get application settings singleton (cached; env is read once at first use)."""
     return Settings()

@@ -2,17 +2,35 @@
 FastAPI application entry point for Personal Finance OS backend
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from app.core.config import get_settings
+from app.core.database import verify_supabase_key
 from app.api import accounts, transactions, events, chat, uploads, users
 
 load_dotenv()
 
 # Get settings
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Validate external dependencies at boot so misconfig is obvious immediately."""
+    ok, message = verify_supabase_key()
+    if ok:
+        print(f"[startup] OK: {message}")
+    else:
+        print("=" * 72)
+        print(f"[startup] ERROR: {message}")
+        print("   The API will start, but all database-backed routes will 500 until fixed.")
+        print("=" * 72)
+    yield
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -21,6 +39,7 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Configure CORS
