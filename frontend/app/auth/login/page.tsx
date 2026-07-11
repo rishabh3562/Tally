@@ -45,8 +45,6 @@ export default function LoginPage() {
     }
 
     try {
-      console.log(`🔐 Attempting login with ${email}...`);
-
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -70,16 +68,11 @@ export default function LoginPage() {
         return;
       }
 
-      console.log(`✅ Login successful! Session created for ${data.user?.email}`);
-      console.log("🎯 Token obtained, redirecting to dashboard...");
-
+      // signInWithPassword has already persisted the session synchronously, so
+      // the API client's interceptor will attach the token on the next request.
+      // The backend auto-provisions this user's DB row on that first call.
       setSuccess("✅ Logged in! Redirecting...");
-
-      // Wait a bit for session to be fully established, then redirect
-      setTimeout(() => {
-        console.log("📍 Navigating to dashboard...");
-        router.push("/dashboard");
-      }, 500);
+      router.push("/dashboard");
     } catch (err) {
       console.error("❌ Unexpected login error:", err);
       setError("❌ Login failed. Please try again.");
@@ -116,7 +109,9 @@ export default function LoginPage() {
       setStep("auth");
       setSuccess("📧 Creating account...");
 
-      // Step 1: Create Supabase Auth user
+      // Create the Supabase Auth user. The matching row in our own DB is created
+      // automatically by the backend on this user's first authenticated request
+      // (see backend auth._ensure_user_provisioned) — no separate call needed.
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -140,55 +135,24 @@ export default function LoginPage() {
         return;
       }
 
-      setSuccess("📧 Account created. Setting up profile...");
-      setStep("profile");
-
-      // Step 2: Get session token
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData.session?.access_token) {
-        setError("❌ Failed to get session. Please try logging in.");
-        setLoading(false);
+      // When "Confirm email" is enabled in Supabase, signUp returns a user but
+      // NO session — the account isn't usable until the emailed link is clicked.
+      // This is expected, not an error.
+      if (!data.session) {
+        setSuccess("✅ Account created! Check your email to confirm, then sign in.");
+        setMode("login");
         setStep("email");
+        setLoading(false);
         return;
       }
 
-      // Step 3: Create user profile in database via backend
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const response = await fetch(`${apiUrl}/api/users/signup`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-          user_id: data.user.id,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Failed to set up profile");
-      }
-
+      // Confirmation disabled: we already have a live session, go straight in.
       setSuccess("✅ All set! Welcome to Tally 🎉");
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 1500);
+      router.push("/dashboard");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error("Signup error:", err);
-
-      if (message.includes("not reachable") || message.includes("Failed to fetch")) {
-        setError(
-          "❌ Backend server is not running. Make sure to start it with: python -m app.main"
-        );
-      } else if (message.includes("Failed to set up profile")) {
-        setError(
-          `❌ Account created but profile setup failed. Error: ${message}. Try logging in.`
-        );
-      } else {
-        setError(`❌ ${message}`);
-      }
+      setError(`❌ ${message}`);
       setLoading(false);
       setStep("email");
     }
