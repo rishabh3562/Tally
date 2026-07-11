@@ -79,3 +79,82 @@ export interface UploadJob {
   created_at?: string;
   finished_at?: string;
 }
+
+// Ingestion job status values
+export type JobStatus = 'queued' | 'processing' | 'done' | 'failed';
+
+// Per-job ingestion stats (GET /api/jobs, GET /api/jobs/{id})
+export interface JobStats {
+  parser: string | null;
+  parsed: number;
+  inserted: number;
+  duplicates_skipped: number;
+  failed: number;
+  debit_count: number;
+  debit_total: number;
+  credit_count: number;
+  credit_total: number;
+  categories: Record<string, number>;
+  duration_ms: number;
+  // Some jobs surface per-row parse errors (rendered in the upload panel).
+  errors?: string[];
+}
+
+// Ingestion job (GET /api/jobs, GET /api/jobs/{id})
+export interface Job {
+  job_id: string;
+  status: JobStatus;
+  message: string | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+  stats: JobStats | null;
+}
+
+// Transaction imported by a job (GET /api/jobs/{id}/transactions)
+export interface JobTransaction {
+  id: string;
+  date: string;
+  amount: number;
+  currency: string;
+  raw_merchant: string;
+  memo: string | null;
+  category: string | null;
+  upi_transaction_id: string | null;
+  direction: 'debit' | 'credit' | null;
+}
+
+export interface JobTransactionsResponse {
+  total: number;
+  items: JobTransaction[];
+}
+
+// Insights summary (GET /api/insights/summary)
+export interface InsightsBreakdown {
+  name: string;
+  total: number;
+  count: number;
+}
+
+export interface InsightsMonthly {
+  month: string; // "YYYY-MM"
+  spent: number;
+  received: number;
+}
+
+export interface InsightsSummary {
+  total_spent: number;
+  total_received: number;
+  net: number;
+  txn_count: number;
+  top_categories: InsightsBreakdown[];
+  top_merchants: InsightsBreakdown[];
+  monthly: InsightsMonthly[];
+}
+
+// AI narrative insights (GET /api/insights/ai)
+export interface AIInsights {
+  summary: string;
+  highlights: string[];
+  generated_at: string;
+}
