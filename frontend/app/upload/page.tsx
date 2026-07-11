@@ -171,34 +171,88 @@ export default function UploadPage() {
               <>
                 <CheckCircle className="mx-auto w-16 h-16 text-green-500 mb-4" />
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Complete!</h2>
-                <p className="text-gray-600 mb-6">Your transactions have been imported successfully.</p>
+                <p className="text-gray-600 mb-6">
+                  {jobStatus?.message || "Your transactions have been imported."}
+                </p>
               </>
             )}
-            {jobStatus?.status === "processing" && (
+            {(!jobStatus || jobStatus?.status === "queued" || jobStatus?.status === "processing") && (
               <>
                 <div className="mx-auto w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Processing...</h2>
-                <p className="text-gray-600">Parsing and categorizing your transactions...</p>
+                <p className="text-gray-600">Parsing, deduplicating and categorizing your transactions...</p>
               </>
             )}
             {jobStatus?.status === "failed" && (
               <>
                 <AlertCircle className="mx-auto w-16 h-16 text-red-500 mb-4" />
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Failed</h2>
-                <p className="text-gray-600 mb-2">{jobStatus?.error || "Unknown error"}</p>
+                <p className="text-gray-600 mb-2">
+                  {jobStatus?.message || jobStatus?.error || "Unknown error"}
+                </p>
               </>
             )}
-            <div className="mt-8">
-              <button
-                onClick={() => {
-                  setJobId("");
-                  setSelectedFile(null);
-                }}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition"
-              >
-                Upload Another File
-              </button>
+          </div>
+
+          {/* Metrics breakdown, once the backend has recorded them */}
+          {jobStatus?.stats && (
+            <div className="mt-6 border-t pt-6 text-left">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                {[
+                  { label: "Parsed", value: jobStatus.stats.parsed },
+                  { label: "Imported", value: jobStatus.stats.inserted },
+                  { label: "Duplicates", value: jobStatus.stats.duplicates_skipped },
+                  { label: "Failed", value: jobStatus.stats.failed },
+                ].map((m) => (
+                  <div key={m.label} className="bg-gray-50 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-gray-900">{m.value ?? 0}</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">{m.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {(jobStatus.stats.debit_count > 0 || jobStatus.stats.credit_count > 0) && (
+                <div className="flex gap-4 text-sm text-gray-600 mb-4">
+                  <span>💸 Paid: ₹{Number(jobStatus.stats.debit_total || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })} ({jobStatus.stats.debit_count})</span>
+                  <span>💰 Received: ₹{Number(jobStatus.stats.credit_total || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })} ({jobStatus.stats.credit_count})</span>
+                </div>
+              )}
+
+              {jobStatus.stats.categories && Object.keys(jobStatus.stats.categories).length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {Object.entries(jobStatus.stats.categories).map(([name, count]) => (
+                    <span key={name} className="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full">
+                      {name}: {count as number}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {Array.isArray(jobStatus.stats.errors) && jobStatus.stats.errors.length > 0 && (
+                <details className="mt-3 text-sm">
+                  <summary className="cursor-pointer text-red-600">
+                    {jobStatus.stats.errors.length} row error(s)
+                  </summary>
+                  <ul className="mt-2 list-disc list-inside text-gray-500 space-y-1">
+                    {jobStatus.stats.errors.map((err: string, i: number) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
+          )}
+
+          <div className="mt-8 text-center">
+            <button
+              onClick={() => {
+                setJobId("");
+                setSelectedFile(null);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition"
+            >
+              Upload Another File
+            </button>
           </div>
         </div>
       )}
