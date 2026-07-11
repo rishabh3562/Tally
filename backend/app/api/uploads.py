@@ -39,7 +39,10 @@ def _insert_transactions(db: Client, rows: list[dict]) -> None:
         db.table("transactions").insert(rows).execute()
     except Exception as e:
         msg = str(e).lower()
-        if any(k in msg for k in _EXTENDED_TX_KEYS) or "column" in msg or "schema cache" in msg:
+        # Precise PostgREST "column doesn't exist" signal — NOT a generic error
+        # containing the word "column" (which could be a real constraint error
+        # we must not mask by silently dropping fields).
+        if "schema cache" in msg or "could not find" in msg:
             stripped = [
                 {k: v for k, v in row.items() if k not in _EXTENDED_TX_KEYS}
                 for row in rows
@@ -419,6 +422,8 @@ async def get_job_transactions(
         items = []
         for r in resp.data or []:
             cat = r.get("categories")
+            if isinstance(cat, list):  # tolerate list-shaped embed just in case
+                cat = cat[0] if cat else None
             items.append({
                 "id": r["id"],
                 "date": r["date"],

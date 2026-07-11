@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   direction TEXT CHECK (direction IN ('debit', 'credit')),
   counterparty TEXT,                   -- cleaned payee/payer name
   funding_source TEXT,                 -- e.g. "Paid by State Bank of India 9112"
-  source_job_id UUID REFERENCES processing_jobs(id) ON DELETE SET NULL,  -- provenance / correlation
+  source_job_id UUID,                  -- provenance / correlation (FK added below, after processing_jobs exists)
   source_file_path TEXT,               -- path in the statements Storage bucket
   group_id UUID,                       -- clubbing collective payments (set by analytics)
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -140,6 +140,15 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
 );
 -- Migration for existing projects (safe to re-run):
 --   ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS stats JSONB;
+
+-- Now that processing_jobs exists, attach the transactions.source_job_id FK.
+-- Wrapped so a re-run doesn't error on the already-present constraint.
+DO $$ BEGIN
+  ALTER TABLE transactions
+    ADD CONSTRAINT fk_transactions_source_job
+    FOREIGN KEY (source_job_id) REFERENCES processing_jobs(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Chat conversation history
 CREATE TABLE IF NOT EXISTS chat_conversations (

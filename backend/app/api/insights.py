@@ -47,6 +47,8 @@ def _compute_summary(txns: list[dict]) -> dict[str, Any]:
         amount = float(t.get("amount") or 0)
         date_str = str(t.get("date") or "")[:7]  # YYYY-MM
         cat_obj = t.get("categories")
+        if isinstance(cat_obj, list):  # tolerate list-shaped embed
+            cat_obj = cat_obj[0] if cat_obj else None
         cat_name = cat_obj.get("name") if isinstance(cat_obj, dict) else "Uncategorized"
         merchant = t.get("raw_merchant") or "Unknown"
 

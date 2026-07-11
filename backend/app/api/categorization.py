@@ -53,6 +53,8 @@ async def recategorize(
         needy = set()
         for r in rows:
             cat = r.get("categories")
+            if isinstance(cat, list):  # tolerate list-shaped embed
+                cat = cat[0] if cat else None
             cat_name = cat.get("name") if isinstance(cat, dict) else None
             if (cat_name in (None, "Other")) and r.get("raw_merchant"):
                 needy.add(r["raw_merchant"])
