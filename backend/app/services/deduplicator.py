@@ -10,6 +10,7 @@ def fingerprint(
     amount: float,
     raw_merchant: str,
     account_id: str,
+    extra: str = "",
 ) -> str:
     """
     Create a deterministic fingerprint for a transaction.
@@ -19,11 +20,15 @@ def fingerprint(
         amount: Transaction amount
         raw_merchant: Raw merchant string
         account_id: Account UUID
+        extra: Optional distinguishing token (e.g. a UPI/reference id or memo)
+            so that two genuine same-day, same-amount, same-merchant payments
+            aren't collapsed into one. It's deterministic from the source, so
+            re-uploading the same statement still dedupes correctly.
 
     Returns:
         SHA256 hex digest
     """
-    data = f"{date}|{amount}|{raw_merchant}|{account_id}"
+    data = f"{date}|{amount}|{raw_merchant}|{account_id}|{extra}"
     return hashlib.sha256(data.encode()).hexdigest()
 
 

@@ -2,18 +2,46 @@
 
 import asyncio
 import hashlib
+import logging
+import time
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, status
 from supabase import Client
 from uuid import uuid4
-from app.core.database import get_supabase
+from app.core.database import get_supabase, get_supabase_client
 from app.core.auth import get_current_user
 from app.core.config import get_settings
-from app.core.openrouter_manager import OpenRouterClient
 from app.schemas.uploads import UploadResponse, JobStatusOut
-from app.agents.orchestrator import FinancialProcessingOrchestrator
-from app.agents.base import LLMConfig
+from app.services.parser import parse_pdf, parse_csv, parse_xlsx
+from app.services.categorizer import categorize_transaction
+from app.services.deduplicator import fingerprint
+
+logger = logging.getLogger("tally.ingestion")
 
 router = APIRouter(prefix="/api", tags=["uploads"])
+
+
+def _update_job(db: Client, job_id: str, **fields) -> None:
+    """Update a processing_jobs row, tolerating a missing `stats` column.
+
+    `stats` is added by a migration (see database_schema.sql). If the column
+    isn't there yet, retry without it so job tracking still works.
+    """
+    try:
+        db.table("processing_jobs").update(fields).eq("id", job_id).execute()
+    except Exception as e:
+        if "stats" in fields:
+            fields.pop("stats", None)
+            try:
+                db.table("processing_jobs").update(fields).eq("id", job_id).execute()
+                logger.warning(
+                    "processing_jobs.stats column missing — run the migration in "
+                    "database_schema.sql to capture per-job metrics"
+                )
+                return
+            except Exception as e2:
+                e = e2
+        logger.error(f"job {job_id}: failed to update status: {e}")
 
 
 @router.post("/upload-statement", response_model=UploadResponse)
@@ -93,125 +121,178 @@ async def upload_statement(
             detail=f"Failed to create job: {str(e)}",
         )
 
-    # Fire off ingestion with new agent-based system
-    async def run_ingestion_agent():
-        try:
-            # Create LLM config with Nemotron 3 Ultra
-            llm_config = LLMConfig(
-                api_key=settings.openrouter_api_key,
-                base_url=settings.openrouter_api_url,
-                model=settings.primary_llm_model,
-                temperature=0.3,
-                max_tokens=2000,
-            )
-
-            # Create orchestrator
-            orchestrator = FinancialProcessingOrchestrator(llm_config)
-
-            # Parse file based on type
-            from app.services.parser import parse_pdf, parse_csv, parse_xlsx
-
-            if ext.lower() == "pdf":
-                raw_txs = parse_pdf(file_bytes, bank_code)
-            elif ext.lower() == "csv":
-                raw_txs = parse_csv(file_bytes, bank_code)
-            elif ext.lower() in ["xlsx", "xls"]:
-                raw_txs = parse_xlsx(file_bytes, bank_code)
-            else:
-                raise ValueError(f"Unsupported file type: {ext}")
-
-            if not raw_txs:
-                raise ValueError("No transactions found in file")
-
-            # Run through orchestrator pipeline
-            result = await orchestrator.process_statement(
-                raw_transactions=raw_txs,
-                bank_code=bank_code,
-                file_type=ext,
-            )
-
-            if not result.get("success"):
-                db.table("processing_jobs").update({
-                    "status": "failed",
-                    "error": result.get("error", "Processing failed"),
-                }).eq("id", job_id).execute()
-                return
-
-            # Insert transactions into database
-            transactions = result.get("transactions", [])
-            inserted_count = 0
-
-            for tx in transactions:
-                try:
-                    # Create fingerprint
-                    fingerprint = hashlib.sha256(
-                        f"{tx['date']}|{tx['amount']}|{tx['raw_merchant']}|{account_id}".encode()
-                    ).hexdigest()
-
-                    # Get or create category
-                    category_response = db.table("categories").select("id").eq(
-                        "name", tx.get("category", "Other")
-                    ).limit(1).execute()
-
-                    category_id = None
-                    if category_response.data:
-                        category_id = category_response.data[0]["id"]
-                    else:
-                        # Create category if doesn't exist
-                        cat_insert = db.table("categories").insert({
-                            "name": tx.get("category", "Other"),
-                            "user_id": None,
-                            "icon": "📌",
-                        }).execute()
-                        if cat_insert.data:
-                            category_id = cat_insert.data[0]["id"]
-
-                    # Insert transaction
-                    insert_data = {
-                        "user_id": user_id,
-                        "account_id": account_id,
-                        "date": tx["date"],
-                        "amount": tx["amount"],
-                        "currency": tx.get("currency", "INR"),
-                        "raw_merchant": tx["raw_merchant"],
-                        "category_id": category_id,
-                        "memo": tx.get("memo", ""),
-                        "fingerprint": fingerprint,
-                        "confidence_score": tx.get("confidence", 0.5),
-                        "is_transfer": False,
-                    }
-
-                    db.table("transactions").insert(insert_data).execute()
-                    inserted_count += 1
-                except Exception as e:
-                    print(f"Error inserting transaction: {e}")
-                    continue
-
-            # Update job status
-            db.table("processing_jobs").update({
-                "status": "done",
-                "error": None,
-                "finished_at": asyncio.get_event_loop().time(),
-            }).eq("id", job_id).execute()
-
-            print(f"Job {job_id}: Processed {result.get('parsed_count', 0)}, "
-                  f"Valid {result.get('valid_count', 0)}, "
-                  f"Inserted {inserted_count}")
-
-        except Exception as e:
-            print(f"Ingestion error: {e}")
-            db.table("processing_jobs").update({
-                "status": "failed",
-                "error": str(e),
-            }).eq("id", job_id).execute()
-
-    asyncio.create_task(run_ingestion_agent())
+    # Fire off deterministic ingestion in the background. We use a fresh Supabase
+    # client (not the request-scoped `db`) because the request context is gone by
+    # the time this task runs.
+    asyncio.create_task(
+        _run_ingestion(job_id, user_id, account_id, ext, bank_code, file_bytes)
+    )
 
     return UploadResponse(
         job_id=job_id,
         status="queued",
         message="Processing started",
     )
+
+
+async def _run_ingestion(
+    job_id: str,
+    user_id: str,
+    account_id: str,
+    ext: str,
+    bank_code: str,
+    file_bytes: bytes,
+) -> None:
+    """Parse, dedup, categorize and store a statement — with logging + metrics.
+
+    Every stage is logged and counted; the counts are written back to the job's
+    `stats` so the UI can show exactly what happened (and why nothing was
+    imported, when that's the case).
+    """
+    started = time.monotonic()
+    db = get_supabase_client()
+    stats: dict = {
+        "parser": None,
+        "parsed": 0,
+        "duplicates_skipped": 0,
+        "inserted": 0,
+        "failed": 0,
+        "debit_count": 0,
+        "debit_total": 0.0,
+        "credit_count": 0,
+        "credit_total": 0.0,
+        "categories": {},
+        "errors": [],
+    }
+
+    def finish(status_value: str, message: str, error: str | None = None):
+        stats["duration_ms"] = int((time.monotonic() - started) * 1000)
+        stats["message"] = message
+        _update_job(
+            db, job_id,
+            status=status_value,
+            error=error,
+            stats=stats,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        logger.info(f"job {job_id}: {status_value.upper()} — {message} | {stats}")
+
+    try:
+        _update_job(db, job_id, status="processing")
+        logger.info(f"job {job_id}: parsing {ext} (bank_code={bank_code})")
+
+        # 1) Parse (deterministic)
+        if ext == "pdf":
+            raw_txs = parse_pdf(file_bytes, bank_code)
+            stats["parser"] = "gpay/pdf"
+        elif ext == "csv":
+            raw_txs = parse_csv(file_bytes, bank_code)
+            stats["parser"] = f"csv:{bank_code}"
+        elif ext in ("xlsx", "xls"):
+            raw_txs = parse_xlsx(file_bytes, bank_code)
+            stats["parser"] = f"xlsx:{bank_code}"
+        else:
+            finish("failed", f"Unsupported file type: {ext}", error="unsupported_file_type")
+            return
+
+        stats["parsed"] = len(raw_txs)
+        logger.info(f"job {job_id}: parsed {len(raw_txs)} transactions")
+
+        if not raw_txs:
+            finish(
+                "failed",
+                "No transactions found. The statement format wasn't recognised — "
+                "check the file and bank selection.",
+                error="no_transactions_parsed",
+            )
+            return
+
+        # 2) Deduplicate against what's already stored for this account
+        existing = db.table("transactions").select("fingerprint").eq(
+            "account_id", account_id
+        ).execute()
+        existing_fps = {r["fingerprint"] for r in (existing.data or []) if r.get("fingerprint")}
+
+        # 3) Categorize + insert
+        category_id_cache: dict[str, str | None] = {}
+
+        def resolve_category_id(name: str) -> str | None:
+            if name in category_id_cache:
+                return category_id_cache[name]
+            cid = None
+            try:
+                res = db.table("categories").select("id").eq("name", name).is_(
+                    "user_id", "null"
+                ).limit(1).execute()
+                if res.data:
+                    cid = res.data[0]["id"]
+                else:
+                    ins = db.table("categories").insert(
+                        {"name": name, "user_id": None}
+                    ).execute()
+                    if ins.data:
+                        cid = ins.data[0]["id"]
+            except Exception as e:
+                logger.warning(f"job {job_id}: category resolve failed for '{name}': {e}")
+            category_id_cache[name] = cid
+            return cid
+
+        for tx in raw_txs:
+            # Include the memo (which carries the UPI/reference id for GPay) so
+            # distinct same-day, same-amount payments aren't treated as dupes.
+            fp = fingerprint(
+                tx["date"], tx["amount"], tx["raw_merchant"], account_id,
+                tx.get("memo", ""),
+            )
+            if fp in existing_fps:
+                stats["duplicates_skipped"] += 1
+                continue
+            existing_fps.add(fp)
+
+            # Track debit/credit split for the summary.
+            if tx["amount"] < 0:
+                stats["credit_count"] += 1
+                stats["credit_total"] += -tx["amount"]
+            else:
+                stats["debit_count"] += 1
+                stats["debit_total"] += tx["amount"]
+
+            category, confidence = await categorize_transaction(
+                tx["raw_merchant"], tx["amount"], tx.get("memo"), db
+            )
+            stats["categories"][category] = stats["categories"].get(category, 0) + 1
+
+            try:
+                db.table("transactions").insert({
+                    "user_id": user_id,
+                    "account_id": account_id,
+                    "date": tx["date"].isoformat() if hasattr(tx["date"], "isoformat") else tx["date"],
+                    "amount": tx["amount"],
+                    "currency": tx.get("currency", "INR"),
+                    "raw_merchant": tx["raw_merchant"],
+                    "category_id": resolve_category_id(category),
+                    "memo": tx.get("memo", ""),
+                    "fingerprint": fp,
+                    "confidence_score": confidence,
+                    "is_transfer": False,
+                }).execute()
+                stats["inserted"] += 1
+                if stats["inserted"] % 100 == 0:
+                    logger.info(f"job {job_id}: inserted {stats['inserted']}...")
+            except Exception as e:
+                stats["failed"] += 1
+                if len(stats["errors"]) < 5:
+                    stats["errors"].append(f"{tx['raw_merchant']} on {tx['date']}: {e}")
+
+        finish(
+            "done",
+            f"Imported {stats['inserted']} of {stats['parsed']} transactions "
+            f"({stats['duplicates_skipped']} duplicates skipped, {stats['failed']} failed).",
+        )
+
+    except Exception as e:
+        logger.exception(f"job {job_id}: ingestion crashed")
+        finish("failed", f"Processing error: {e}", error=str(e))
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusOut)
@@ -233,13 +314,18 @@ async def get_job_status(
             )
 
         job = response.data[0]
+        job_stats = job.get("stats") or {}
         return JobStatusOut(
             job_id=job["id"],
             status=job["status"],
             error=job.get("error"),
+            message=job_stats.get("message"),
+            stats=job_stats or None,
             created_at=job["created_at"],
             finished_at=job.get("finished_at"),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

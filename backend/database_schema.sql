@@ -123,9 +123,14 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
   file_hash TEXT NOT NULL,
   status TEXT DEFAULT 'queued' CHECK (status IN ('queued', 'processing', 'done', 'failed')),
   error TEXT,
+  -- Per-job metrics captured during ingestion (parsed/inserted/skipped counts,
+  -- category distribution, sample errors, duration, human-readable message).
+  stats JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   finished_at TIMESTAMPTZ
 );
+-- Migration for existing projects (safe to re-run):
+--   ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS stats JSONB;
 
 -- Chat conversation history
 CREATE TABLE IF NOT EXISTS chat_conversations (

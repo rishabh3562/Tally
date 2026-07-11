@@ -2,6 +2,7 @@
 FastAPI application entry point for Personal Finance OS backend
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,6 +14,14 @@ from app.core.database import verify_supabase_key
 from app.api import accounts, transactions, events, chat, uploads, users
 
 load_dotenv()
+
+# Ensure our application logs (e.g. the "tally.ingestion" job logger) are visible
+# at INFO; without this they'd inherit the root WARNING level and stay hidden.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logging.getLogger("tally").setLevel(logging.INFO)
 
 # Get settings
 settings = get_settings()
