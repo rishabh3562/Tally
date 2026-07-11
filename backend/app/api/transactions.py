@@ -17,7 +17,7 @@ async def list_transactions(
     end_date: date = Query(None),
     category_id: str = Query(None),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     user_id: str = Depends(get_current_user),
     db: Client = Depends(get_supabase),
 ):
