@@ -9,7 +9,8 @@ from app.schemas.accounts import AccountCreate, AccountOut
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
-@router.get("/", response_model=list[AccountOut])
+@router.get("", response_model=list[AccountOut])
+@router.get("/", response_model=list[AccountOut], include_in_schema=False)
 async def list_accounts(
     user_id: str = Depends(get_current_user),
     db: Client = Depends(get_supabase),
@@ -25,7 +26,8 @@ async def list_accounts(
         )
 
 
-@router.post("/", response_model=AccountOut)
+@router.post("", response_model=AccountOut)
+@router.post("/", response_model=AccountOut, include_in_schema=False)
 async def create_account(
     account: AccountCreate,
     user_id: str = Depends(get_current_user),

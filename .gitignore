@@ -5,7 +5,7 @@
 *.swo
 *~
 .claude/
-
+*.test.*
 # Local files
 ignore
 rough

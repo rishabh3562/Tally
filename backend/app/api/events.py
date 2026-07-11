@@ -12,7 +12,8 @@ from app.schemas.events import EventCreate, EventOut
 router = APIRouter(prefix="/api/events", tags=["events"])
 
 
-@router.post("/", response_model=EventOut)
+@router.post("", response_model=EventOut)
+@router.post("/", response_model=EventOut, include_in_schema=False)
 async def create_event(
     event: EventCreate,
     user_id: str = Depends(get_current_user),
@@ -69,7 +70,8 @@ async def create_event(
         )
 
 
-@router.get("/", response_model=list[EventOut])
+@router.get("", response_model=list[EventOut])
+@router.get("/", response_model=list[EventOut], include_in_schema=False)
 async def list_events(
     user_id: str = Depends(get_current_user),
     db: Client = Depends(get_supabase),

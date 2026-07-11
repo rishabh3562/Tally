@@ -10,7 +10,8 @@ from app.schemas.transactions import TransactionOut, CategoryPatchRequest
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
-@router.get("/", response_model=dict)
+@router.get("", response_model=dict)
+@router.get("/", response_model=dict, include_in_schema=False)
 async def list_transactions(
     start_date: date = Query(None),
     end_date: date = Query(None),
