@@ -302,11 +302,32 @@ def _sse_pack(text: str):
         yield f"data: {token} \n\n"
 
 
+async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
+    """Answer a question: try the agentic path, fall back to the deterministic one.
+
+    The agent (``chat_agent.run_agent``) lets the LLM plan tool calls over the
+    user's real data. If no LLM is configured or the loop can't produce an answer,
+    we fall back to the keyword-based deterministic ``answer_question`` (optionally
+    rephrased) so the feature never regresses to an error.
+    """
+    # Imported lazily to avoid a circular import (chat_tools imports from here).
+    from app.services import chat_agent
+
+    try:
+        return await chat_agent.run_agent(question, user_id, db)
+    except chat_agent.AgentUnavailable as e:
+        logger.info("chat agent unavailable, using deterministic path: %s", e)
+    except Exception as e:
+        logger.warning("chat agent errored, using deterministic path: %s", e)
+
+    deterministic = answer_question(question, user_id, db)
+    return await rephrase(question, deterministic)
+
+
 async def stream_chat_response(question: str, user_id: str, db: Client):
     """Stream a chat answer as Server-Sent Events."""
     try:
-        answer = answer_question(question, user_id, db)
-        answer = await rephrase(question, answer)
+        answer = await _resolve_answer(question, user_id, db)
     except Exception as e:  # pragma: no cover - defensive, surfaced to the user
         answer = f"Sorry, I couldn't answer that right now ({e})."
 

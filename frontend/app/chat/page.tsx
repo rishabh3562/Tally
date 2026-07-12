@@ -6,9 +6,9 @@ import { Send, MessageSquare } from "lucide-react";
 
 const EXAMPLE_PROMPTS = [
   "How much did I spend on food last month?",
-  "What are my top spending categories?",
   "Which merchants did I spend the most at?",
-  "How much did I spend in May?",
+  "Did I spend more this month than last month?",
+  "Find my Amazon purchases",
 ];
 
 export default function ChatPage() {

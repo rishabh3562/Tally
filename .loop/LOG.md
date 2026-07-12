@@ -147,4 +147,49 @@ Note for the user: the uncommitted `.gitignore` change adds `*.md`, which silent
 ignores every new markdown file in the repo (I had to `-f` to add `.loop/*.md`).
 That looks like an accidental over-broad rule — left untouched as it's your change.
 
+---
+
+## Iteration 6 — 2026-07-12 — Agentic chat: LLM plans tool calls over real data
+
+User request: "make more agentic capabilities" and "the chat feature should be
+able to work on the data." Followed the advisor's gates: verified the LLM is
+reachable here (OpenRouter Nemotron; no Gemini keys) AND probed that the free
+model can reliably emit tool-call JSON (5/5 once the prompt says "JSON only, start
+with '{'" and max_tokens is ~700) BEFORE building.
+
+**What changed**
+- `backend/app/services/chat_tools.py` (new): 6 deterministic tools over the
+  user's data via PostgREST — `get_spending_summary`, `get_spending_by_category`,
+  `get_top_merchants`, `search_transactions`, `list_events`, `compare_periods`.
+  Return compact structured JSON (not prose). `user_id` is always server-injected;
+  model args are validated/clamped; result rows hard-capped at 15 for small-context
+  models. Built on the (correct) `llm_client`, NOT the dead `app/agents/` base.
+- `backend/app/services/chat_agent.py` (new): bounded ReAct-style loop
+  (`max_steps=2`) on `llm_client.acomplete_json`. The model picks a tool → we run
+  it → feed results back → the model gives a final answer (or we synthesise one
+  from tool results via `acomplete`). Numbers come only from tools. Privileged args
+  (`user_id`/`db`) stripped from model output. Currency normalised to `Rs`
+  deterministically (weak models emit `$`/`₹` despite the prompt). Raises
+  `AgentUnavailable` on no-LLM / no-results / errors.
+- `chat_service.stream_chat_response`: now tries the agent first and falls back to
+  the deterministic `answer_question` (+rephrase) on `AgentUnavailable` or any
+  error, so the feature never regresses.
+- `frontend/app/chat/page.tsx`: example prompts now showcase the new capabilities
+  (merchant search, period comparison).
+
+**Verification**
+- `python -m pytest tests/` → 57 passed (system Python310), incl. new
+  `test_chat_tools.py` (9) and `test_chat_agent.py` (8: single-tool, max-steps
+  finalize, unavailable, no-results, unknown-tool, privileged-arg stripping,
+  currency normalization).
+- **Real end-to-end run against the live model** (canned fake DB): agent correctly
+  selected tools and answered with correct figures — "food in June" → Rs 1,800
+  (get_spending_by_category), top merchants → Amazon Rs 4,000 / Zomato Rs 1,800
+  (get_top_merchants), Amazon search → 2 rows Rs 4,000 (search_transactions),
+  comparison → compare_periods. This is the first time the chat runtime path is
+  verified against a real LLM. A transient OpenRouter `'choices'` error on one call
+  was handled gracefully (fell through to `AgentUnavailable` → deterministic path).
+- `npx eslint app/chat/page.tsx` → clean.
+- NOT verified: live run against a real Supabase DB (tests/E2E use a fake DB stub).
+
 STATUS: IN_PROGRESS

@@ -223,6 +223,9 @@ class _FakeTable:
     def lte(self, *a, **k):
         return self
 
+    def ilike(self, *a, **k):
+        return self
+
     def order(self, *a, **k):
         return self
 
