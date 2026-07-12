@@ -192,4 +192,39 @@ with '{'" and max_tokens is ~700) BEFORE building.
 - `npx eslint app/chat/page.tsx` → clean.
 - NOT verified: live run against a real Supabase DB (tests/E2E use a fake DB stub).
 
+---
+
+## Iteration 7 — 2026-07-12 — Restore the number-fabrication guardrail on the agentic path
+
+Advisor flagged that iterations 2/5 built a "model never states a figure it didn't
+compute" guardrail, but it lived only in the *fallback* `rephrase()` path. The
+agentic path (now tried first) rendered figures with no such check, and the
+fallback only fires on errors — never on a confidently-wrong answer. In a finance
+app that's the worst failure mode.
+
+**What changed**
+- `chat_agent._verify_figures`: every `Rs` amount in an agent answer must match
+  (±1 rupee, sign-insensitive) a number the tools actually returned (numeric
+  compare — tools emit `1800.0`, model writes `Rs 1,800.00`). Applied at BOTH exit
+  points (`final` action and the finalize call); a mismatch raises
+  `AgentUnavailable` → deterministic fallback. No figures in the answer → allowed.
+- `chat_tools.search_transactions` now returns `total_amount` so a legitimate
+  summarised total ("totaling Rs 4,000") verifies instead of falsely failing.
+- Minor: `_run_tool` also strips a model-supplied `question` arg (passed
+  positionally) to avoid a duplicate-kwarg TypeError.
+
+**Verification**
+- `python -m pytest tests/` → 63 passed (adds verifier tests incl. accept-match,
+  reject-fabricated, sign-insensitive net, precomputed-sum, and an agent-level
+  fabricated-final-answer → AgentUnavailable case).
+- **Real E2E re-run against the live model**: all 5 legitimate answers still pass
+  verification and return correct `Rs` figures (food Rs 1,800; merchants Rs
+  4,000/1,800/800; Amazon search totaling Rs 4,000; Goa Rs 12,000; July=June Rs
+  6,600). The guardrail does NOT over-trigger on real answers.
+
+**Honest limitation**: the guardrail checks that stated figures *exist* in the tool
+results; it does not prove the model *selected the right one* for the question
+(e.g. reporting the wrong category's total when both appear in results). It closes
+the fabrication hole, not every selection-error. Still unverified: real-Supabase run.
+
 STATUS: IN_PROGRESS

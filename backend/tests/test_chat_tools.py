@@ -55,6 +55,7 @@ def test_search_transactions_returns_rows():
     ])
     out = chat_tools.search_transactions(db, "u", keyword="Amazon", limit=5)
     assert out["count"] == 1
+    assert out["total_amount"] == 500
     assert out["transactions"][0]["merchant"] == "Amazon"
     assert out["transactions"][0]["amount"] == 500
 

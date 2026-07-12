@@ -35,6 +35,45 @@ class AgentUnavailable(Exception):
     """Raised when the agent cannot produce an answer (caller should fall back)."""
 
 
+def _collect_numbers(obj: Any, acc: set[int]) -> None:
+    """Recursively gather every numeric value (as whole-rupee absolute ints) that
+    the tools actually returned, so we can check the model didn't invent figures."""
+    if isinstance(obj, bool):
+        return
+    if isinstance(obj, (int, float)):
+        acc.add(round(abs(float(obj))))
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            _collect_numbers(v, acc)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect_numbers(v, acc)
+
+
+def _verify_figures(answer: str, transcript: list[dict[str, Any]]) -> bool:
+    """Reject an answer that states an `Rs` figure not present in the tool results.
+
+    The tools compute the numbers; the model only renders/selects/compares them —
+    which is exactly where a weak model can misstate a figure. Every `Rs` amount in
+    the answer must match (±1 rupee, sign-insensitive) a value the tools returned.
+    Comparison is numeric (tools emit raw floats like 1800.0; the model writes
+    'Rs 1,800.00'). No figures in the answer -> nothing to verify -> allowed.
+    """
+    figures = re.findall(r"Rs\s*(-?[\d,]+(?:\.\d+)?)", answer)
+    if not figures:
+        return True
+    tool_values: set[int] = set()
+    _collect_numbers(transcript, tool_values)
+    for raw in figures:
+        try:
+            val = round(abs(float(raw.replace(",", ""))))
+        except ValueError:
+            continue
+        if not any(abs(val - tv) <= 1 for tv in tool_values):
+            return False
+    return True
+
+
 def _normalize_currency(text: str) -> str:
     """Force INR presentation. Weak free-tier models often ignore the 'use Rs'
     instruction and emit '$' or the rupee sign, which is misleading in this
@@ -91,9 +130,10 @@ def _run_tool(name: str, args: dict[str, Any], question: str, user_id: str, db: 
         return {"error": f"unknown tool '{name}'"}
     if not isinstance(args, dict):
         args = {}
-    # Strip any attempt by the model to pass identity/privileged args.
-    args.pop("user_id", None)
-    args.pop("db", None)
+    # Strip any attempt by the model to pass identity/privileged or server-owned
+    # args (user_id/db are injected; question is passed positionally below).
+    for reserved in ("user_id", "db", "question"):
+        args.pop(reserved, None)
     try:
         return tool(db, user_id, question=question, **args)
     except TypeError as e:  # bad/unexpected args from the model
@@ -131,8 +171,11 @@ async def run_agent(
         action = decision.get("action")
         if action == "final":
             answer = str(decision.get("answer", "")).strip()
-            if answer:
+            if answer and _verify_figures(answer, transcript):
                 return _normalize_currency(answer)
+            if answer:
+                logger.warning("agent final answer stated unverified figures; falling back")
+                raise AgentUnavailable("final answer figures not backed by tool results")
             break
 
         if action == "call_tool":
@@ -155,4 +198,7 @@ async def run_agent(
 
     if not answer:
         raise AgentUnavailable("empty final answer")
+    if not _verify_figures(answer, transcript):
+        logger.warning("agent finalize stated unverified figures; falling back")
+        raise AgentUnavailable("finalized answer figures not backed by tool results")
     return _normalize_currency(answer)

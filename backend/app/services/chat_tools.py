@@ -149,7 +149,12 @@ def search_transactions(
         }
         for r in rows
     ]
-    return {"keyword": kw, "count": len(out), "transactions": out}
+    return {
+        "keyword": kw,
+        "count": len(out),
+        "total_amount": round(sum(t["amount"] for t in out), 2),
+        "transactions": out,
+    }
 
 
 def list_events(db: Client, user_id: str, *, question: str = "", **_: Any) -> dict[str, Any]:
