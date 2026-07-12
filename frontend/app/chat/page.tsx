@@ -4,6 +4,13 @@ import { useChat } from "@/hooks/useChat";
 import { useState } from "react";
 import { Send, MessageSquare } from "lucide-react";
 
+const EXAMPLE_PROMPTS = [
+  "How much did I spend on food last month?",
+  "What are my top spending categories?",
+  "Which merchants did I spend the most at?",
+  "How much did I spend in May?",
+];
+
 export default function ChatPage() {
   const { messages, isLoading, sendMessage } = useChat();
   const [input, setInput] = useState("");
@@ -13,6 +20,12 @@ export default function ChatPage() {
     if (input.trim()) {
       sendMessage(input);
       setInput("");
+    }
+  };
+
+  const handleExampleClick = (prompt: string) => {
+    if (!isLoading) {
+      sendMessage(prompt);
     }
   };
 
@@ -32,13 +45,21 @@ export default function ChatPage() {
             <div className="text-center">
               <MessageSquare className="mx-auto w-16 h-16 text-gray-300 mb-4" />
               <p className="text-gray-500">
-                Ask me about your finances. For example:
+                Ask me about your finances. Try one of these:
               </p>
-              <ul className="mt-4 text-sm text-gray-600 space-y-1">
-                <li>• "How much did I spend on food last month?"</li>
-                <li>• "What are my top spending categories?"</li>
-                <li>• "How much did I spend in May?"</li>
-              </ul>
+              <div className="mt-4 flex flex-col items-center gap-2">
+                {EXAMPLE_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => handleExampleClick(prompt)}
+                    disabled={isLoading}
+                    className="text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 px-4 py-2 rounded-full transition"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (

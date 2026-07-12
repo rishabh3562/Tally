@@ -65,4 +65,27 @@ Goal: see `.loop/GOAL.md` — improve the finance chat feature.
   clickable so they send the question, and add partial-line buffering in
   `hooks/useChat.ts` (the SSE reader currently assumes each read is a whole line).
 
+---
+
+## Iteration 3 — 2026-07-12 — Chat UX: clickable prompts + robust SSE reader
+
+**What changed**
+- `frontend/app/chat/page.tsx`: the empty-state example questions are now
+  clickable pills (`EXAMPLE_PROMPTS`) that send the question on click (disabled
+  while a request is in flight). Added a fourth merchant-oriented example.
+- `frontend/hooks/useChat.ts`: fixed the SSE reader, which split each raw network
+  read on `\n` and dropped any line that straddled two reads (token corruption).
+  Now buffers across reads, consumes only completed lines, decodes with
+  `{ stream: true }`, and flushes a trailing complete line at stream end.
+
+**Verification**
+- `npx tsc --noEmit` → exit 0 (no type errors).
+- `npx eslint app/chat/page.tsx hooks/useChat.ts` → exit 0 (clean).
+- NOT verified here: live browser streaming against the running backend.
+
+**Next planned step**
+- Iteration 4: apply the same shared async `llm_client` treatment to
+  `app/api/events.py::_generate_event_summary` (still uses a blocking duplicated
+  `requests.post` to OpenRouter) — the last remaining copy of that pattern.
+
 STATUS: IN_PROGRESS

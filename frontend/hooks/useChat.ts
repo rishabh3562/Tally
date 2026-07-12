@@ -48,40 +48,49 @@ export const useChat = () => {
       let assistantContent = '';
       const assistantId = Date.now().toString();
 
+      const applyContent = () => {
+        setMessages((prev) => {
+          const existing = prev.find((m) => m.id === assistantId);
+          if (existing) {
+            return prev.map((m) =>
+              m.id === assistantId ? { ...m, content: assistantContent } : m
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: assistantId,
+              role: 'assistant',
+              content: assistantContent,
+              timestamp: new Date(),
+            },
+          ];
+        });
+      };
+
+      // Buffer partial reads: a single network read is not guaranteed to align to
+      // SSE line boundaries, so accumulate and only consume completed lines.
+      let buffer = '';
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? ''; // keep the trailing (possibly partial) line
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
-            const content = line.slice(6);
-            assistantContent += content;
-
-            setMessages((prev) => {
-              const existing = prev.find((m) => m.id === assistantId);
-              if (existing) {
-                return prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: assistantContent }
-                    : m
-                );
-              } else {
-                return [
-                  ...prev,
-                  {
-                    id: assistantId,
-                    role: 'assistant',
-                    content: assistantContent,
-                    timestamp: new Date(),
-                  },
-                ];
-              }
-            });
+            assistantContent += line.slice(6);
+            applyContent();
           }
         }
+      }
+
+      // Flush any complete line left in the buffer at stream end.
+      if (buffer.startsWith('data: ')) {
+        assistantContent += buffer.slice(6);
+        applyContent();
       }
     } catch (error) {
       console.error('Chat error:', error);
