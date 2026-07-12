@@ -88,4 +88,28 @@ Goal: see `.loop/GOAL.md` — improve the finance chat feature.
   `app/api/events.py::_generate_event_summary` (still uses a blocking duplicated
   `requests.post` to OpenRouter) — the last remaining copy of that pattern.
 
+---
+
+## Iteration 4 — 2026-07-12 — Route event summaries through shared llm_client
+
+**What changed**
+- `backend/app/api/events.py::_generate_event_summary`: replaced the blocking,
+  duplicated `requests.post` to OpenRouter (with its own `openrouter_api_key` /
+  `primary_llm_model` handling) with the shared async `llm_client.acomplete`
+  (Gemini rotation + OpenRouter fallback). Skips the call when no provider is
+  available and always degrades to the deterministic total one-liner. Removed the
+  now-unused `import requests`. This was the last copy of that blocking pattern.
+- Added `backend/tests/test_events.py`: 4 tests (empty txns, llm-unavailable
+  fallback, llm-error fallback, llm-output-used).
+
+**Verification**
+- `python -m pytest tests/` → 34 passed (system Python310).
+- Import check: `app.api.events` imports cleanly.
+- NOT verified here: live event creation against a real DB/LLM.
+
+**Next planned step**
+- Iteration 5 (optional): frontend polish is complete for the chat empty state;
+  candidate next work is dark-mode/consistent styling on the chat page or
+  conversation persistence. Chat backend is now functional end-to-end in logic.
+
 STATUS: IN_PROGRESS

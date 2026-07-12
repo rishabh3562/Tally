@@ -1,6 +1,6 @@
 """Events API routes."""
 
-import requests
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from supabase import Client
 from uuid import uuid4
@@ -8,6 +8,9 @@ from app.core.database import get_supabase
 from app.core.auth import get_current_user
 from app.core.config import get_settings
 from app.schemas.events import EventCreate, EventOut
+from app.services import llm_client
+
+logger = logging.getLogger("tally.events")
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -118,52 +121,38 @@ async def get_event(
 async def _generate_event_summary(
     event_name: str,
     transactions: list,
-    settings: object,
+    settings: object = None,
 ) -> str:
-    """Generate AI summary for event."""
+    """Generate an AI summary for an event, with a deterministic fallback.
+
+    Routes through the shared async ``llm_client`` (Gemini key rotation +
+    OpenRouter fallback) rather than a blocking direct HTTP call, and always
+    degrades to a computed one-liner when no LLM provider is available.
+    """
     if not transactions:
         return f"Event '{event_name}' with no transactions."
 
-    # Calculate totals
     total_amount = sum(t["amount"] for t in transactions)
     count = len(transactions)
+    fallback = f"{event_name}: Spent ₹{total_amount:,.2f} across {count} transactions."
 
-    # Format context for LLM
-    context = f"""
-    Event: {event_name}
-    Number of transactions: {count}
-    Total amount: ₹{total_amount:,.2f}
+    if not llm_client.is_available():
+        return fallback
 
-    Sample transactions:
-    {str(transactions[:5])[:500]}
-    """
-
-    prompt = f"""
-    Provide a brief 1-2 sentence summary of this event based on the transaction data.
-    Format: "[Event Name]: Spent ₹[amount] across [count] transactions. Breakdown: [categories]"
-
-    {context}
-    """
+    prompt = (
+        "Provide a brief 1-2 sentence summary of this event based on the "
+        "transaction data. Do not invent figures; the totals are given.\n"
+        f'Format: "[Event Name]: Spent Rs [amount] across [count] transactions. '
+        'Breakdown: [categories]"\n\n'
+        f"Event: {event_name}\n"
+        f"Number of transactions: {count}\n"
+        f"Total amount: Rs {total_amount:,.2f}\n"
+        f"Sample transactions: {str(transactions[:5])[:500]}"
+    )
 
     try:
-        response = requests.post(
-            f"{settings.openrouter_api_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.openrouter_api_key}",
-                "HTTP-Referer": "http://localhost:3000",
-                "X-Title": "Personal Finance OS",
-            },
-            json={
-                "model": settings.primary_llm_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 100,
-            },
-            timeout=10,
-        )
-
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
-        pass
-
-    return f"{event_name}: Spent ₹{total_amount:,.2f} across {count} transactions."
+        out = (await llm_client.acomplete(prompt, max_tokens=120)).strip()
+        return out or fallback
+    except Exception as e:
+        logger.warning("event summary fell back to deterministic text: %s", e)
+        return fallback
