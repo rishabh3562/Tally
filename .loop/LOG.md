@@ -37,4 +37,32 @@ Goal: see `.loop/GOAL.md` — improve the finance chat feature.
   with the deterministic string as the guaranteed fallback when no LLM is available.
   Do the same for `events.py`'s duplicated blocking OpenRouter call.
 
+---
+
+## Iteration 2 — 2026-07-12 — LLM rephrasing via shared async client (with guardrails)
+
+**What changed**
+- Reconnected chat answers to an LLM, but through the shared async
+  `app/services/llm_client.py` (`acomplete` → Gemini key rotation + OpenRouter
+  fallback) instead of the old blocking, duplicated `requests.post` to OpenRouter.
+  Fulfils goal item 3.
+- New `rephrase(question, deterministic_answer)`: asks the LLM to reword the
+  already-computed answer conversationally. Guardrails: (a) skip entirely if no
+  provider is configured, (b) fall back to the deterministic answer on any error,
+  (c) reject the LLM output if any `Rs …` figure from the deterministic answer is
+  missing (i.e. the model altered a number) — the correct numbers always win.
+- `stream_chat_response` now awaits `rephrase` before streaming.
+- Added 4 tests (mocked llm_client): unavailable-skip, error-fallback,
+  altered-figure-rejection, faithful-rewrite-accepted.
+
+**Verification**
+- `python -m pytest tests/test_chat_service.py` → 30 passed (system Python310).
+- Import check: `stream_chat_response` is an async generator; API imports clean.
+- NOT verified here: a real LLM provider response end-to-end (mocked in tests).
+
+**Next planned step**
+- Iteration 3 (frontend): make the example prompts on `app/chat/page.tsx`
+  clickable so they send the question, and add partial-line buffering in
+  `hooks/useChat.ts` (the SSE reader currently assumes each read is a whole line).
+
 STATUS: IN_PROGRESS

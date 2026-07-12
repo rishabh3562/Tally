@@ -152,6 +152,51 @@ def test_category_name_tolerates_list_embed():
     assert cs._category_name({"categories": None}) == "Uncategorized"
 
 
+# --- rephrase (LLM layer, mocked) ------------------------------------------
+
+DETERMINISTIC = "You spent Rs 1,200 on food across 3 transactions (all time)."
+
+
+async def test_rephrase_skips_when_llm_unavailable(monkeypatch):
+    monkeypatch.setattr(cs.llm_client, "is_available", lambda: False)
+    out = await cs.rephrase("how much on food", DETERMINISTIC)
+    assert out == DETERMINISTIC
+
+
+async def test_rephrase_falls_back_on_error(monkeypatch):
+    monkeypatch.setattr(cs.llm_client, "is_available", lambda: True)
+
+    async def boom(*a, **k):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(cs.llm_client, "acomplete", boom)
+    out = await cs.rephrase("how much on food", DETERMINISTIC)
+    assert out == DETERMINISTIC
+
+
+async def test_rephrase_rejects_altered_figures(monkeypatch):
+    monkeypatch.setattr(cs.llm_client, "is_available", lambda: True)
+
+    async def liar(*a, **k):
+        return "You blew Rs 9,999 on food!"  # changed the figure
+
+    monkeypatch.setattr(cs.llm_client, "acomplete", liar)
+    out = await cs.rephrase("how much on food", DETERMINISTIC)
+    assert out == DETERMINISTIC  # guardrail keeps the correct numbers
+
+
+async def test_rephrase_accepts_faithful_rewrite(monkeypatch):
+    monkeypatch.setattr(cs.llm_client, "is_available", lambda: True)
+    good = "Nice — you spent Rs 1,200 on food across 3 transactions (all time)."
+
+    async def faithful(*a, **k):
+        return good
+
+    monkeypatch.setattr(cs.llm_client, "acomplete", faithful)
+    out = await cs.rephrase("how much on food", DETERMINISTIC)
+    assert out == good
+
+
 # --- SSE packing ------------------------------------------------------------
 
 def test_sse_pack_is_single_line_events():

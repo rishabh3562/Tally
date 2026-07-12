@@ -11,6 +11,7 @@ never invents them.
 from __future__ import annotations
 
 import calendar
+import logging
 import re
 from collections import defaultdict
 from datetime import date, timedelta
@@ -18,6 +19,10 @@ from enum import Enum
 from typing import Any, Optional
 
 from supabase import Client
+
+from app.services import llm_client
+
+logger = logging.getLogger("tally.chat")
 
 
 class IntentType(str, Enum):
@@ -253,6 +258,39 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
     return _answer_open_ended(txns, period)
 
 
+async def rephrase(question: str, deterministic_answer: str) -> str:
+    """Rephrase a computed answer conversationally via the shared LLM client.
+
+    The numbers are already computed and correct; the LLM only reshapes tone. If
+    no provider is configured or the call fails/looks unsafe, we return the
+    deterministic answer unchanged so the feature never regresses.
+    """
+    if not deterministic_answer or not llm_client.is_available():
+        return deterministic_answer
+
+    prompt = (
+        "You are a friendly personal-finance assistant. Rephrase the answer below "
+        "in one or two natural sentences. You MUST keep every number, currency "
+        "figure and name EXACTLY as given — do not do any arithmetic, do not add "
+        "or invent figures. Reply with only the rephrased answer.\n\n"
+        f"User asked: {question}\n"
+        f"Answer to rephrase: {deterministic_answer}"
+    )
+    try:
+        out = (await llm_client.acomplete(prompt, max_tokens=200)).strip()
+    except Exception as e:  # LLMUnavailable or transport error -> safe fallback
+        logger.warning("chat rephrase fell back to deterministic answer: %s", e)
+        return deterministic_answer
+
+    # Guardrail: every rupee figure in the computed answer must survive verbatim,
+    # otherwise the model altered the numbers — reject and keep the safe version.
+    figures = re.findall(r"Rs\s-?[\d,]+", deterministic_answer)
+    if not out or any(f not in out for f in figures):
+        logger.warning("chat rephrase dropped/altered figures; using deterministic answer")
+        return deterministic_answer
+    return out
+
+
 def _sse_pack(text: str):
     """Yield ``text`` as SSE ``data:`` events, one whitespace-delimited token at a
     time. Splitting on tokens keeps each event single-line so the frontend's
@@ -266,6 +304,7 @@ async def stream_chat_response(question: str, user_id: str, db: Client):
     """Stream a chat answer as Server-Sent Events."""
     try:
         answer = answer_question(question, user_id, db)
+        answer = await rephrase(question, answer)
     except Exception as e:  # pragma: no cover - defensive, surfaced to the user
         answer = f"Sorry, I couldn't answer that right now ({e})."
 
