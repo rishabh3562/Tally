@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
-import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash } from "lucide-react";
-import type { AIInsights, InsightsSummary } from "@/types";
+import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash, Wand2 } from "lucide-react";
+import type { AIInsights, InsightsSummary, RecategorizeResponse } from "@/types";
 
 function inr(value: number | null | undefined): string {
   return Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -20,10 +20,51 @@ function monthLabel(month: string): string {
 export default function InsightsPage() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [recatBanner, setRecatBanner] = useState<string | null>(null);
+  const [recatError, setRecatError] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
 
   const params: Record<string, string> = {};
   if (start) params.start = start;
   if (end) params.end = end;
+
+  useEffect(() => {
+    if (!recatBanner) return;
+    const t = setTimeout(() => setRecatBanner(null), 8000);
+    return () => clearTimeout(t);
+  }, [recatBanner]);
+
+  const recategorizeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post<RecategorizeResponse>("/api/recategorize");
+      return res.data;
+    },
+    onSuccess: (data) => {
+      setRecatError(null);
+      if (data.status === "skipped") {
+        setRecatBanner(
+          data.reason || data.message || "Nothing to recategorize right now."
+        );
+        return;
+      }
+      setRecatBanner(
+        data.message ||
+          `AI categorized ${data.categorized_merchants ?? 0} merchants, updated ${
+            data.updated_transactions ?? 0
+          } transactions.`
+      );
+      // The categorised data lives in the summary + transactions queries. The AI
+      // narrative (insights-ai) is intentionally expensive and cached, so we don't
+      // force it to regenerate here.
+      queryClient.invalidateQueries({ queryKey: ["insights-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    },
+    onError: (err: any) => {
+      if (err?.response?.status === 401) return;
+      setRecatError("Re-categorization failed. Please try again.");
+    },
+  });
 
   const {
     data: summary,
@@ -68,7 +109,33 @@ export default function InsightsPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-4xl font-bold text-gray-900">Insights</h1>
+        <button
+          onClick={() => recategorizeMutation.mutate()}
+          disabled={recategorizeMutation.isPending}
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition disabled:opacity-60"
+        >
+          {recategorizeMutation.isPending ? (
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Wand2 className="w-4 h-4" />
+          )}
+          {recategorizeMutation.isPending
+            ? "Re-categorizing…"
+            : "Re-categorize with AI"}
+        </button>
       </div>
+
+      {recatBanner && (
+        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
+          {recatBanner}
+        </div>
+      )}
+
+      {recatError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {recatError}
+        </div>
+      )}
 
       {/* Date range filter */}
       <div className="bg-white rounded-lg shadow p-6">

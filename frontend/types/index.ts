@@ -158,3 +158,88 @@ export interface AIInsights {
   highlights: string[];
   generated_at: string;
 }
+
+// Transaction row as returned by GET /api/transactions?page=&limit=
+export interface TransactionListItem {
+  id: string;
+  date: string;
+  amount: number;
+  raw_merchant: string;
+  memo: string | null;
+  category_id: string | null;
+  upi_transaction_id: string | null;
+  direction: 'debit' | 'credit' | null;
+  group_id: string | null;
+}
+
+export interface TransactionsPage {
+  data: TransactionListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// Clubbing / groups
+export type GroupKind = 'manual' | 'auto';
+
+// List item (GET /api/groups) and create response (POST /api/groups)
+export interface Group {
+  id: string;
+  name: string;
+  kind: GroupKind;
+  created_at?: string;
+  count: number;
+  total: number;
+}
+
+// Member transaction of a group (GET /api/groups/{id})
+export interface GroupTransaction {
+  id: string;
+  date: string;
+  amount: number;
+  raw_merchant: string;
+  memo: string | null;
+  upi_transaction_id: string | null;
+  direction: 'debit' | 'credit' | null;
+  category: string | null;
+}
+
+// Group detail (GET /api/groups/{id})
+export interface GroupDetail {
+  id: string;
+  name: string;
+  kind: GroupKind;
+  created_at: string;
+  count: number;
+  total: number;
+  transactions: GroupTransaction[];
+}
+
+// Auto-club response (POST /api/groups/auto)
+export interface AutoClubResponse {
+  status: string;
+  groups_created: number;
+  transactions_clubbed: number;
+  groups: { id: string; name: string; count: number; total: number }[];
+  message: string;
+}
+
+// AI category suggestion (POST /api/transactions/{id}/suggest-category)
+export interface CategorySuggestion {
+  suggested_category: string;
+  suggested_category_id: string | null;
+  confidence: number;
+  reasoning: string | null;
+  source: 'ai' | 'rule';
+}
+
+// Bulk AI recategorization (POST /api/recategorize)
+export interface RecategorizeResponse {
+  status: string;
+  candidates?: number;
+  categorized_merchants?: number;
+  updated_transactions?: number;
+  message?: string;
+  // Present when status === "skipped"
+  reason?: string;
+}

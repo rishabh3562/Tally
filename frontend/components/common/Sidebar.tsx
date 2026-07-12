@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, TrendingDown, FileText, MessageCircle, Upload, Banknote, History, PieChart } from "lucide-react";
+import { BarChart3, TrendingDown, FileText, MessageCircle, Upload, Banknote, History, PieChart, Layers } from "lucide-react";
 
 const navigationItems = [
   {
@@ -19,6 +19,11 @@ const navigationItems = [
     name: "Transactions",
     href: "/transactions",
     icon: TrendingDown,
+  },
+  {
+    name: "Groups",
+    href: "/groups",
+    icon: Layers,
   },
   {
     name: "Upload",
