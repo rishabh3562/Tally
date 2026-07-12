@@ -112,4 +112,39 @@ Goal: see `.loop/GOAL.md` — improve the finance chat feature.
   candidate next work is dark-mode/consistent styling on the chat page or
   conversation persistence. Chat backend is now functional end-to-end in logic.
 
+---
+
+## Iteration 5 — 2026-07-12 — Orchestration test coverage + SSE whitespace fix
+
+**What changed**
+- Added a fake-Supabase test harness (chainable builder stub + canned rows) and
+  6 tests over `answer_question()` end-to-end: intent routing to
+  total-by-category / merchant / open-ended / events, empty-events, and
+  no-transactions. This covers the actual PostgREST call chains and
+  `_answer_events`, which formatter-only tests never touched (per advisor).
+- `_sse_pack`: `text.split(" ")` → `text.split()` so an LLM rephrase containing a
+  newline can't emit a token with an embedded `\n` that breaks SSE framing on the
+  client. Existing single-line-event test stays green.
+
+**Verification**
+- `python -m pytest tests/` → 40 passed (system Python310).
+- The orchestration tests exercise the query-builder chains via a stub; they do
+  NOT hit a real Supabase instance. Live DB/LLM runtime path remains unverified
+  in this environment (honest limitation of the loop).
+
+## Summary of this session (iterations 1–5)
+- The chat feature went from **fully broken** (every question hit a non-existent
+  `sql_exec` RPC and errored) to **functional in logic**: PostgREST + Python
+  aggregation, real date-period filtering, deterministic number-driven answers,
+  optional LLM rephrasing with number guardrails, and a robust SSE path on both
+  ends. Duplicated blocking OpenRouter calls in chat and events now go through the
+  shared async `llm_client`. First backend tests added: 40 passing. No credentials
+  hardcoded — all config stays in `app/core/config.py` (env only).
+- Remaining candidates for a future run: real-DB/E2E verification, conversation
+  persistence, chat-page styling/dark-mode.
+
+Note for the user: the uncommitted `.gitignore` change adds `*.md`, which silently
+ignores every new markdown file in the repo (I had to `-f` to add `.loop/*.md`).
+That looks like an accidental over-broad rule — left untouched as it's your change.
+
 STATUS: IN_PROGRESS

@@ -197,6 +197,94 @@ async def test_rephrase_accepts_faithful_rewrite(monkeypatch):
     assert out == good
 
 
+# --- answer_question orchestration (fake Supabase, no DB) -------------------
+
+class _FakeResult:
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeTable:
+    """Chainable PostgREST-builder stub. Every filter/select returns self;
+    ``execute()`` returns the canned rows registered for the table name."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def select(self, *a, **k):
+        return self
+
+    def eq(self, *a, **k):
+        return self
+
+    def gte(self, *a, **k):
+        return self
+
+    def lte(self, *a, **k):
+        return self
+
+    def order(self, *a, **k):
+        return self
+
+    def limit(self, *a, **k):
+        return self
+
+    def execute(self):
+        return _FakeResult(self._rows)
+
+
+class _FakeDB:
+    def __init__(self, tables):
+        self._tables = tables
+
+    def table(self, name):
+        return _FakeTable(self._tables.get(name, []))
+
+
+def _mk_db(transactions=None, events=None):
+    return _FakeDB({"transactions": transactions or [], "events": events or []})
+
+
+def test_answer_question_total_by_category_routes_and_computes():
+    db = _mk_db(transactions=[_txn(100, category="Food"), _txn(50, category="Transport")])
+    out = cs.answer_question("how much did I spend", "user-1", db)
+    assert "Rs 150" in out
+    assert "Food" in out
+
+
+def test_answer_question_merchant_routes():
+    db = _mk_db(transactions=[_txn(100, merchant="Zomato"), _txn(60, merchant="Zomato")])
+    out = cs.answer_question("which merchant did I pay most", "user-1", db)
+    assert "Zomato" in out
+    assert "Rs 160" in out
+
+
+def test_answer_question_open_ended_routes():
+    db = _mk_db(transactions=[_txn(100), _txn(-40)])
+    out = cs.answer_question("tell me about my finances", "user-1", db)
+    assert "Rs 100" in out   # spent
+    assert "Rs 40" in out    # received
+
+
+def test_answer_question_events_route():
+    db = _mk_db(events=[{"name": "Goa Trip", "summary": "fun", "total_amount": 5000}])
+    out = cs.answer_question("how much did my Goa trip cost", "user-1", db)
+    assert "Goa Trip" in out
+    assert "Rs 5,000" in out
+
+
+def test_answer_question_events_empty():
+    db = _mk_db(events=[])
+    out = cs.answer_question("what about my trips", "user-1", db)
+    assert "don't have any events" in out.lower()
+
+
+def test_answer_question_no_transactions():
+    db = _mk_db(transactions=[])
+    out = cs.answer_question("how much did I spend on food", "user-1", db)
+    assert "no spending" in out.lower()
+
+
 # --- SSE packing ------------------------------------------------------------
 
 def test_sse_pack_is_single_line_events():

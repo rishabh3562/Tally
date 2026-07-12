@@ -296,7 +296,9 @@ def _sse_pack(text: str):
     time. Splitting on tokens keeps each event single-line so the frontend's
     line-based parser stays correct; a trailing space rejoins them on the client.
     """
-    for token in text.split(" "):
+    # split() on all whitespace so an LLM rephrase containing a newline can't
+    # produce a token with an embedded '\n' that breaks SSE line framing.
+    for token in text.split():
         yield f"data: {token} \n\n"
 
 
