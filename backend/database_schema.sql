@@ -150,6 +150,21 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Transaction groups (clubbing collective payments; manual or auto-detected)
+CREATE TABLE IF NOT EXISTS transaction_groups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  kind TEXT DEFAULT 'manual' CHECK (kind IN ('manual', 'auto')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+DO $$ BEGIN
+  ALTER TABLE transactions
+    ADD CONSTRAINT fk_transactions_group
+    FOREIGN KEY (group_id) REFERENCES transaction_groups(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- Chat conversation history
 CREATE TABLE IF NOT EXISTS chat_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -182,6 +197,7 @@ CREATE INDEX IF NOT EXISTS idx_learning_records_user_merchant ON learning_record
 CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_user_id ON processing_jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_file_hash ON processing_jobs(file_hash);
+CREATE INDEX IF NOT EXISTS idx_transaction_groups_user ON transaction_groups(user_id);
 
 -- Enable RLS (Row-Level Security)
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -193,6 +209,7 @@ ALTER TABLE event_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE learning_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE processing_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transaction_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
 
@@ -207,6 +224,7 @@ CREATE POLICY "Users see own event transactions" ON event_transactions FOR ALL U
 CREATE POLICY "Users see own notes" ON notes FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users see own learning records" ON learning_records FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users see own processing jobs" ON processing_jobs FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users see own groups" ON transaction_groups FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users see own conversations" ON chat_conversations FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users see own messages" ON chat_messages FOR ALL USING (auth.uid() = user_id);
 

@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from app.core.config import get_settings
 from app.core.database import verify_supabase_key
-from app.api import accounts, transactions, events, chat, uploads, users, insights, categorization
+from app.api import accounts, transactions, events, chat, uploads, users, insights, categorization, groups
 
 load_dotenv()
 
@@ -69,6 +69,7 @@ app.include_router(chat.router)
 app.include_router(uploads.router)
 app.include_router(insights.router)
 app.include_router(categorization.router)
+app.include_router(groups.router)
 
 
 # Health check endpoint
