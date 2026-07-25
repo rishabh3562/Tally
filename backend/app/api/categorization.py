@@ -7,6 +7,7 @@ ingestion categorizes the same merchant for free (no LLM call).
 """
 
 import logging
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from supabase import Client
 
@@ -19,6 +20,16 @@ from app.services.categorizer import llm_categorize_merchants, rule_category
 logger = logging.getLogger("tally.categorizer")
 
 router = APIRouter(prefix="/api", tags=["categorization"])
+
+
+def _split_leading_emoji(name: str) -> tuple[str | None, str]:
+    """If a name starts with an emoji ('🏠 Rent'), split it off as the icon so the
+    UI doesn't show a double icon. Returns (emoji_or_None, cleaned_name)."""
+    s = name.strip()
+    m = re.match(r"^(\S+)\s+(\S.*)$", s)
+    if m and any(ord(ch) >= 0x2190 for ch in m.group(1)):  # symbols/emoji range
+        return m.group(1), m.group(2).strip()
+    return None, s
 
 # Bound the work (and cost) per invocation.
 _MAX_UNIQUE_MERCHANTS = 300
@@ -64,6 +75,12 @@ async def create_category(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Category name is required.",
         )
+    # If the user typed an emoji into the name ("🏠 Rent"), use it as the icon so
+    # the UI doesn't render a double icon.
+    emoji, cleaned = _split_leading_emoji(name)
+    icon = body.icon
+    if emoji and (not icon or icon == "🏷️"):
+        icon, name = emoji, cleaned
     parent_id = (body.parent_id or None)
     try:
         # A parent, if given, must be a category visible to this user.
@@ -89,7 +106,7 @@ async def create_category(
 
         row = db.table("categories").insert({
             "name": name,
-            "icon": body.icon or "🏷️",
+            "icon": icon or "🏷️",
             "user_id": user_id,
             "parent_id": parent_id,
         }).execute().data

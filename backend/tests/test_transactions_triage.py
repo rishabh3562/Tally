@@ -205,6 +205,27 @@ async def test_create_category_rejects_blank():
     assert ei.value.status_code == 422
 
 
+def test_split_leading_emoji():
+    assert categorization._split_leading_emoji("🏠 Rent") == ("🏠", "Rent")
+    assert categorization._split_leading_emoji("⛽ Petrol") == ("⛽", "Petrol")
+    assert categorization._split_leading_emoji("Rent") == (None, "Rent")
+    assert categorization._split_leading_emoji("New York") == (None, "New York")  # no emoji
+
+
+async def test_create_category_extracts_emoji_from_name():
+    store = {
+        "data": {"categories": []},
+        "insert_rows": [{"id": "c1", "name": "Rent", "icon": "🏠", "user_id": "u1"}],
+        "log": [],
+    }
+    res = await categorization.create_category(
+        CategoryCreate(name="🏠 Rent"), user_id="u1", db=_FakeDB(store),
+    )
+    ins = next(l for l in store["log"] if l["op"] == "insert")
+    assert ins["payload"]["name"] == "Rent"       # emoji stripped from name
+    assert ins["payload"]["icon"] == "🏠"          # ...and used as the icon
+
+
 async def test_create_subcategory_under_valid_parent():
     store = {
         "data": {"categories": [{"id": "p1", "name": "Food", "user_id": None, "parent_id": None}]},
