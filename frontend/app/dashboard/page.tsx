@@ -10,8 +10,29 @@ import type { TriageResponse } from "@/types";
 
 const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
+// Skeleton shown while the (large, limit:1000) transactions query is in flight.
+// Without it the page briefly renders its "No transactions yet" empty state to a
+// user who has hundreds of transactions — the UI lying, then snapping to reality.
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-8 animate-pulse" aria-hidden="true">
+      <div className="h-40 rounded-2xl bg-gray-100" />
+      <div className="h-28 rounded-lg bg-gray-100" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-32 rounded-lg bg-gray-100" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="h-80 rounded-lg bg-gray-100" />
+        <div className="h-80 rounded-lg bg-gray-100" />
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-  const { data: transactionsData } = useQuery({
+  const { data: transactionsData, isPending: txPending } = useQuery({
     queryKey: ["transactions", { limit: 1000 }],
     queryFn: async () => {
       const response = await apiClient.get("/api/transactions", { params: { limit: 1000 } });
@@ -19,7 +40,7 @@ export default function DashboardPage() {
     },
   });
 
-  const { data: accountsData } = useQuery({
+  const { data: accountsData, isPending: acctPending } = useQuery({
     queryKey: ["accounts"],
     queryFn: async () => {
       const response = await apiClient.get("/api/accounts");
@@ -99,17 +120,32 @@ export default function DashboardPage() {
   const inr = (n: number) =>
     `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
+  const DashboardHeader = () => (
+    <div className="flex items-center justify-between">
+      <h1 className="text-4xl font-bold text-gray-900">Dashboard</h1>
+      <Link
+        href="/upload"
+        className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
+      >
+        + Upload Statement
+      </Link>
+    </div>
+  );
+
+  // Show the chrome immediately, skeleton the data — never the "you have nothing"
+  // empty state while the real data is still loading.
+  if (txPending) {
+    return (
+      <div className="space-y-8">
+        <DashboardHeader />
+        <DashboardSkeleton />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-4xl font-bold text-gray-900">Dashboard</h1>
-        <Link
-          href="/upload"
-          className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"
-        >
-          + Upload Statement
-        </Link>
-      </div>
+      <DashboardHeader />
 
       {/* Money story — answers "where did my money go" in one line */}
       {transactions.length > 0 && (
@@ -185,7 +221,13 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        {accounts.length === 0 ? (
+        {acctPending ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 animate-pulse">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-20 rounded-lg bg-white/60" />
+            ))}
+          </div>
+        ) : accounts.length === 0 ? (
           <div className="text-center py-4">
             <p className="text-gray-600 mb-4">No accounts yet. Create one to get started!</p>
             <Link
