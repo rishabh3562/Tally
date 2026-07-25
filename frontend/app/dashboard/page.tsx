@@ -54,10 +54,9 @@ export default function DashboardPage() {
     return acc;
   }, {});
 
-  const categoryData = Object.entries(categoryTotals).map(([name, value]) => ({
-    name,
-    value: Number(value),
-  }));
+  const categoryData = Object.entries(categoryTotals)
+    .map(([name, value]) => ({ name, value: Number(value) }))
+    .filter((c) => c.value > 0); // spend slices only (credits net to <= 0)
 
   // Calculate monthly totals
   const monthlyTotals: Record<string, number> = {};
@@ -76,9 +75,29 @@ export default function DashboardPage() {
       amount: Number(value),
     }));
 
-  const totalSpent = transactions.reduce((sum: number, tx: any) => sum + tx.amount, 0);
-  const averageTransaction = transactions.length > 0 ? totalSpent / transactions.length : 0;
-  const topCategory = categoryData.length > 0 ? categoryData.reduce((a, b) => (a.value > b.value ? a : b)) : null;
+  // Spend and received are opposite signs; report them separately (summing all
+  // amounts together nets them and mislabels the result as "spent").
+  const totalSpent = transactions.reduce(
+    (sum: number, tx: any) => sum + (tx.amount > 0 ? tx.amount : 0),
+    0
+  );
+  const totalReceived = transactions.reduce(
+    (sum: number, tx: any) => sum + (tx.amount < 0 ? -tx.amount : 0),
+    0
+  );
+  const spendCount = transactions.filter((tx: any) => tx.amount > 0).length;
+  const topCategory =
+    categoryData.length > 0
+      ? categoryData.reduce((a, b) => (a.value > b.value ? a : b))
+      : null;
+  const topShare =
+    topCategory && totalSpent > 0
+      ? Math.round((topCategory.value / totalSpent) * 100)
+      : 0;
+  const topIsUncategorized = topCategory?.name === "Uncategorized";
+
+  const inr = (n: number) =>
+    `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
   return (
     <div className="space-y-8">
@@ -91,6 +110,45 @@ export default function DashboardPage() {
           + Upload Statement
         </Link>
       </div>
+
+      {/* Money story — answers "where did my money go" in one line */}
+      {transactions.length > 0 && (
+        <section className="rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white p-8 shadow-sm">
+          <p className="text-blue-100 text-sm font-medium uppercase tracking-wide mb-2">
+            Where your money went
+          </p>
+          <p className="text-3xl md:text-4xl font-bold leading-tight">
+            You spent{" "}
+            <span className="tabular-nums">{inr(totalSpent)}</span>{" "}
+            <span className="text-blue-200 font-semibold text-2xl md:text-3xl">
+              across {spendCount} payment{spendCount === 1 ? "" : "s"}
+            </span>
+            .
+          </p>
+          {topCategory && !topIsUncategorized && (
+            <p className="mt-3 text-lg text-blue-50">
+              Your biggest slice was{" "}
+              <span className="font-semibold text-white">{topCategory.name}</span>{" "}
+              at {inr(topCategory.value)}
+              {topShare > 0 ? ` — ${topShare}% of everything` : ""}.
+            </p>
+          )}
+          {topIsUncategorized && (
+            <Link
+              href="/triage"
+              className="mt-4 inline-flex items-center gap-2 bg-white/15 hover:bg-white/25 backdrop-blur px-4 py-2 rounded-lg font-medium transition"
+            >
+              {inr(topCategory!.value)} is still uncategorized — label it to see the real story
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          )}
+          {totalReceived > 0 && (
+            <p className="mt-3 text-sm text-blue-200">
+              {inr(totalReceived)} came back in (refunds, transfers, repayments).
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Uncategorized nudge — the core value loop */}
       {triageCount > 0 && (
