@@ -4,7 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import Link from "next/link";
-import { TrendingDown, Wallet, DollarSign, Banknote, Plus, ArrowRight } from "lucide-react";
+import { TrendingDown, Wallet, DollarSign, Banknote, Plus, ArrowRight, ListChecks } from "lucide-react";
+import { useCategories } from "@/hooks/useCategories";
+import type { TriageResponse } from "@/types";
 
 const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -25,12 +27,25 @@ export default function DashboardPage() {
     },
   });
 
+  const { nameById } = useCategories();
+
+  const { data: triageData } = useQuery({
+    queryKey: ["triage"],
+    queryFn: async () => {
+      const res = await apiClient.get("/api/transactions/triage");
+      return res.data as TriageResponse;
+    },
+  });
+
   const transactions = transactionsData?.data || [];
   const accounts = accountsData || [];
+  const triageCount = triageData?.merchants ?? 0;
 
-  // Calculate category totals
+  // Calculate category totals. The list endpoint returns category_id (not a
+  // name), so resolve it through the categories map — otherwise every row falls
+  // into one bucket and the pie is meaningless.
   const categoryTotals = transactions.reduce((acc: Record<string, number>, tx: any) => {
-    const category = tx.category || "Other";
+    const category = nameById.get(tx.category_id) || "Uncategorized";
     acc[category] = (acc[category] || 0) + tx.amount;
     return acc;
   }, {});
@@ -72,6 +87,29 @@ export default function DashboardPage() {
           + Upload Statement
         </Link>
       </div>
+
+      {/* Uncategorized nudge — the core value loop */}
+      {triageCount > 0 && (
+        <Link
+          href="/triage"
+          className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-lg p-4 hover:bg-amber-100 transition"
+        >
+          <div className="flex items-center gap-3">
+            <ListChecks className="w-6 h-6 text-amber-600 shrink-0" />
+            <div>
+              <p className="font-semibold text-gray-900">
+                {triageCount} merchant{triageCount === 1 ? "" : "s"} still uncategorized
+              </p>
+              <p className="text-sm text-gray-600">
+                Your breakdown isn&apos;t accurate until these are labelled — takes a couple of minutes.
+              </p>
+            </div>
+          </div>
+          <span className="text-amber-700 font-medium flex items-center gap-1 shrink-0">
+            Categorize <ArrowRight className="w-4 h-4" />
+          </span>
+        </Link>
+      )}
 
       {/* Accounts Overview */}
       <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
