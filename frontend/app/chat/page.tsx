@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@/hooks/useChat";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Send, Search, Wand2 } from "lucide-react";
 
@@ -21,12 +21,25 @@ const DO_PROMPTS = [
 export default function ChatPage() {
   const { messages, isLoading, sendMessage } = useChat();
   const [input, setInput] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Keep the newest message and the typing indicator in view as the conversation
+  // grows, and start with the cursor in the box so you can just type.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim()) {
       sendMessage(input);
       setInput("");
+      inputRef.current?.focus();
     }
   };
 
@@ -144,12 +157,14 @@ export default function ChatPage() {
             </div>
           </div>
         )}
+        <div ref={bottomRef} />
       </div>
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center space-x-2">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
