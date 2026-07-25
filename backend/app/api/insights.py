@@ -18,6 +18,7 @@ from app.core.auth import get_current_user
 from app.core.database import get_supabase
 from app.services import llm_client
 from app.services.contributions import detect_contributions
+from app.services.merchant import canonical_merchant
 
 logger = logging.getLogger("tally.insights")
 
@@ -92,7 +93,7 @@ def _compute_summary(txns: list[dict], root_of: dict[str, str] | None = None) ->
         cat_name = cat_obj.get("name") if isinstance(cat_obj, dict) else "Uncategorized"
         if root_of:  # roll a sub-category up into its top-level parent
             cat_name = root_of.get(cat_name, cat_name)
-        merchant = t.get("raw_merchant") or "Unknown"
+        merchant = canonical_merchant(t.get("raw_merchant") or "Unknown")
 
         if amount >= 0:  # spending (app convention: positive = money out)
             total_spent += amount

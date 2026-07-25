@@ -34,6 +34,44 @@ REGEX_RULES = [
 ]
 
 
+# Deterministic token → canonical brand map (uppercased, punctuation-stripped
+# substring match, first wins). Curated from real Indian UPI/bank merchant strings
+# where one brand appears under many legal/variant names (Swiggy = BundlTechnologies
+# = SwiggyInstamart…; Amazon = AmazonIndia/AmazonPay…). People's names never match,
+# so they pass through unchanged. Tokens are >=5 chars to avoid false substrings.
+_CANONICAL_TOKENS = [
+    ("BUNDLTECH", "Swiggy"),          # Swiggy's legal name
+    ("SWIGGY", "Swiggy"),
+    ("AMAZON", "Amazon"),
+    ("AVENUESUPERMART", "DMart"),
+    ("HUNGERBOX", "HungerBox"),
+    ("KHELOMORE", "KheloMore"),
+    ("ZOMATO", "Zomato"),
+    ("FLIPKART", "Flipkart"),
+    ("REDBUS", "RedBus"),
+    ("NETFLIX", "Netflix"),
+    ("SPOTIFY", "Spotify"),
+    ("HOTSTAR", "Hotstar"),
+    ("HOSTINGER", "Hostinger"),
+    ("BIGBASKET", "BigBasket"),
+    ("BLINKIT", "Blinkit"),
+    ("ZEPTO", "Zepto"),
+]
+
+
+def canonical_merchant(raw: str) -> str:
+    """Deterministic brand canonicalization (no DB): collapse merchant-string
+    variants of one brand into a single name. Returns the raw string unchanged
+    when no brand token matches (people, unknown vendors)."""
+    if not raw:
+        return raw
+    key = re.sub(r"[^A-Z0-9]", "", raw.upper())
+    for token, name in _CANONICAL_TOKENS:
+        if token in key:
+            return name
+    return raw
+
+
 async def normalize_merchant(
     raw_merchant: str,
     db: Client,

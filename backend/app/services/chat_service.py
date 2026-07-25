@@ -22,6 +22,7 @@ from typing import Any, Optional
 from supabase import Client
 
 from app.services import llm_client
+from app.services.merchant import canonical_merchant
 
 logger = logging.getLogger("tally.chat")
 
@@ -232,7 +233,7 @@ def _answer_merchant_breakdown(txns: list[dict], period: str) -> str:
 
     totals: dict[str, dict[str, float]] = defaultdict(lambda: {"total": 0.0, "count": 0})
     for t in spend:
-        m = t.get("raw_merchant") or "Unknown"
+        m = canonical_merchant(t.get("raw_merchant") or "Unknown")
         totals[m]["total"] += float(t["amount"])
         totals[m]["count"] += 1
     top = sorted(totals.items(), key=lambda kv: kv[1]["total"], reverse=True)[:5]

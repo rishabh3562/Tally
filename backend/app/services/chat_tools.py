@@ -108,10 +108,11 @@ def get_top_merchants(
     """The biggest merchants by total spend for a date range."""
     start, end = _resolve_period(start, end, question)
     limit = _clamp_limit(limit, 10, _MAX_ROWS)
+    from app.services.merchant import canonical_merchant
     spend = _spend_only(_fetch_transactions(db, user_id, start, end))
     totals: dict[str, dict[str, float]] = defaultdict(lambda: {"total": 0.0, "count": 0})
     for t in spend:
-        m = t.get("raw_merchant") or "Unknown"
+        m = canonical_merchant(t.get("raw_merchant") or "Unknown")
         totals[m]["total"] += float(t["amount"])
         totals[m]["count"] += 1
     rows = sorted(
