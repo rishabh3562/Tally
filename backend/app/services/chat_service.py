@@ -264,26 +264,42 @@ def _try_merchant_spend(
 ) -> Optional[str]:
     """Answer 'how much did I spend at/pay <merchant>' by matching raw_merchant.
     Returns None if no merchant is named or nothing matches (let other handlers try)."""
+    from app.services.merchant import BRAND_NAMES
+
     target = _extract_merchant_target(question)
     if not target:
         return None
+    # Fetch the period's rows and match by literal substring OR — when the target
+    # is a known brand — by its canonical name, so "swiggy" also catches
+    # BundlTechnologies/SwiggyInstamart, not just the strings containing "swiggy".
     q = (
         db.table("transactions").select("amount,raw_merchant")
         .eq("user_id", user_id).eq("is_transfer", False)
-        .ilike("raw_merchant", f"%{target}%")
     )
     if start:
         q = q.gte("date", start)
     if end:
         q = q.lte("date", end)
-    rows = q.execute().data or []
+    all_rows = q.execute().data or []
+
+    tl = target.lower()
+    canon = canonical_merchant(target)
+    brand = canon if canon in BRAND_NAMES else None
+    rows = [
+        r for r in all_rows
+        if tl in (r.get("raw_merchant") or "").lower()
+        or (brand and canonical_merchant(r.get("raw_merchant") or "") == brand)
+    ]
     if not rows:
         return None
     spend = [r for r in rows if float(r.get("amount") or 0) >= 0]
     total = sum(float(r["amount"]) for r in spend)
-    names = sorted({r["raw_merchant"] for r in rows if r.get("raw_merchant")})
-    who = names[0] if len(names) == 1 else f"{len(names)} merchants matching '{target}'"
-    return f"You spent {_rupees(total)} at {who} across {len(spend)} transactions."
+    display = brand or (
+        sorted({r["raw_merchant"] for r in rows if r.get("raw_merchant")})[0]
+        if len({r.get("raw_merchant") for r in rows}) == 1
+        else f"merchants matching '{target}'"
+    )
+    return f"You spent {_rupees(total)} at {display} across {len(spend)} transactions."
 
 
 def _is_biggest_query(question: str) -> bool:

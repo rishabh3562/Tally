@@ -44,6 +44,7 @@ _CANONICAL_TOKENS = [
     ("SWIGGY", "Swiggy"),
     ("AMAZON", "Amazon"),
     ("AVENUESUPERMART", "DMart"),
+    ("DMART", "DMart"),
     ("HUNGERBOX", "HungerBox"),
     ("KHELOMORE", "KheloMore"),
     ("ZOMATO", "Zomato"),
@@ -57,6 +58,9 @@ _CANONICAL_TOKENS = [
     ("BLINKIT", "Blinkit"),
     ("ZEPTO", "Zepto"),
 ]
+
+
+BRAND_NAMES = frozenset(name for _, name in _CANONICAL_TOKENS)
 
 
 def canonical_merchant(raw: str) -> str:

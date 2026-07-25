@@ -27,3 +27,13 @@ def test_people_and_unknowns_pass_through():
 
 def test_empty_is_safe():
     assert cm("") == ""
+
+
+def test_dmart_alias():
+    assert cm("AVENUESUPERMARTSLTD") == "DMart"
+    assert cm("DMart") == "DMart"
+
+
+def test_brand_names_exposed():
+    from app.services.merchant import BRAND_NAMES
+    assert {"Swiggy", "Amazon", "DMart"} <= BRAND_NAMES
