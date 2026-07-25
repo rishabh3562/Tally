@@ -39,3 +39,12 @@ def test_record_trace_read_turn_is_not_an_action():
     chat_service._record_trace(_FakeDB(store), "u1", "q", steps, "ans", "agent", None, 5)
     ins = next(l for l in store["log"] if l["op"] == "insert")
     assert ins["payload"]["action_taken"] is False
+
+
+def test_save_messages_persists_turn_scoped_to_user():
+    store = _store()
+    chat_service._save_messages(_FakeDB(store), "u1", "my question", "the answer")
+    inserts = [l for l in store["log"] if l["op"] == "insert" and l["table"] == "chat_messages"]
+    assert len(inserts) == 2
+    assert inserts[0]["payload"] == {"user_id": "u1", "role": "user", "content": "my question"}
+    assert inserts[1]["payload"] == {"user_id": "u1", "role": "assistant", "content": "the answer"}

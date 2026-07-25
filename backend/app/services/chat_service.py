@@ -366,12 +366,28 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     return answer
 
 
+def _save_messages(db: Client, user_id: str, question: str, answer: str) -> None:
+    """Persist the turn (user question + assistant answer) so history survives a
+    reload. Best-effort and user-scoped; two inserts to keep them ordered."""
+    try:
+        db.table("chat_messages").insert(
+            {"user_id": user_id, "role": "user", "content": question}
+        ).execute()
+        db.table("chat_messages").insert(
+            {"user_id": user_id, "role": "assistant", "content": answer}
+        ).execute()
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("failed to save chat messages: %s", e)
+
+
 async def stream_chat_response(question: str, user_id: str, db: Client):
     """Stream a chat answer as Server-Sent Events."""
     try:
         answer = await _resolve_answer(question, user_id, db)
     except Exception as e:  # pragma: no cover - defensive, surfaced to the user
         answer = f"Sorry, I couldn't answer that right now ({e})."
+
+    _save_messages(db, user_id, question, answer)
 
     for event in _sse_pack(answer):
         yield event

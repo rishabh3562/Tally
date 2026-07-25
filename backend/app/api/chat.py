@@ -35,6 +35,33 @@ async def chat_endpoint(
         )
 
 
+@router.get("/chat/messages")
+async def list_chat_messages(
+    limit: int = 100,
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """The user's chat history (chronological), so it survives a page reload."""
+    try:
+        limit = max(1, min(int(limit), 500))
+        rows = (
+            db.table("chat_messages")
+            .select("id,role,content,created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=False)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+        return {"data": rows}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
 @router.get("/chat/traces")
 async def list_chat_traces(
     limit: int = 25,

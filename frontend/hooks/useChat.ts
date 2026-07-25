@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import apiClient from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 
 export interface Message {
@@ -13,6 +14,37 @@ export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const queryClient = useQueryClient();
+
+  // Load saved history once on mount so the conversation survives a reload.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.get('/api/chat/messages');
+        const rows = (res.data?.data ?? []) as {
+          id: string;
+          role: 'user' | 'assistant';
+          content: string;
+          created_at: string;
+        }[];
+        if (!cancelled && rows.length) {
+          setMessages(
+            rows.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              timestamp: new Date(m.created_at),
+            }))
+          );
+        }
+      } catch {
+        // History is best-effort; ignore load failures.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sendMessage = useCallback(async (question: string) => {
     if (!question.trim()) return;
