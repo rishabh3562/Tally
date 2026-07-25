@@ -10,6 +10,7 @@ import { Send, Search, Wand2 } from "lucide-react";
 const ASK_PROMPTS = [
   "How much did I spend on food last month?",
   "Which merchants did I spend the most at?",
+  "What are my recurring payments?",
   "Did I spend more this month than last month?",
 ];
 const DO_PROMPTS = [
