@@ -8,9 +8,7 @@ import { Sparkles, Layers } from "lucide-react";
 import apiClient from "@/lib/api";
 import type { AutoClubResponse, Group } from "@/types";
 
-function inr(value: number | null | undefined): string {
-  return Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
+import { formatAmount as inr } from "@/lib/format";
 
 function KindBadge({ kind }: { kind: Group["kind"] }) {
   const styles =

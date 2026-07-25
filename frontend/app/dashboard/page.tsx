@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import Link from "next/link";
 import { TrendingDown, Wallet, DollarSign, Banknote, Plus, ArrowRight, ListChecks } from "lucide-react";
 import { useCategories } from "@/hooks/useCategories";
+import { formatINR } from "@/lib/format";
 import type { TriageResponse } from "@/types";
 
 const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
@@ -117,8 +118,7 @@ export default function DashboardPage() {
       : 0;
   const topIsUncategorized = topCategory?.name === "Uncategorized";
 
-  const inr = (n: number) =>
-    `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  const inr = formatINR;
 
   const DashboardHeader = () => (
     <div className="flex items-center justify-between">

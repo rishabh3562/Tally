@@ -5,6 +5,7 @@ import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import apiClient from "@/lib/api";
+import { formatAmount as inr } from "@/lib/format";
 import type { Job, JobStatus, JobTransactionsResponse } from "@/types";
 
 const PAGE_SIZE = 25;
@@ -32,10 +33,6 @@ function formatTimestamp(value: string | null): string {
     dateStyle: "medium",
     timeStyle: "short",
   });
-}
-
-function inr(value: number | null | undefined): string {
-  return Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
 export default function JobDetailPage() {

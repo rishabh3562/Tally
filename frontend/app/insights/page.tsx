@@ -12,9 +12,7 @@ import type {
   RecategorizeResponse,
 } from "@/types";
 
-function inr(value: number | null | undefined): string {
-  return Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
+import { formatAmount as inr } from "@/lib/format";
 
 function monthLabel(month: string): string {
   // month is "YYYY-MM"
