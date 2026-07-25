@@ -202,6 +202,32 @@ def compare_periods(
     }
 
 
+def get_largest_transactions(
+    db: Client, user_id: str, *, start: Optional[str] = None, end: Optional[str] = None,
+    limit: int = 5, question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """The biggest individual spends (merchant, amount, date) for a date range —
+    answers 'what was my biggest expense'."""
+    from app.services.merchant import canonical_merchant
+    start, end = _resolve_period(start, end, question)
+    limit = _clamp_limit(limit, 5, _MAX_ROWS)
+    spend = sorted(
+        _spend_only(_fetch_transactions(db, user_id, start, end)),
+        key=lambda t: float(t["amount"]), reverse=True,
+    )[:limit]
+    return {
+        "period": _period_label(start, end),
+        "transactions": [
+            {
+                "merchant": canonical_merchant(t.get("raw_merchant") or "Unknown"),
+                "amount": round(float(t["amount"]), 2),
+                "date": t.get("date"),
+            }
+            for t in spend
+        ],
+    }
+
+
 # --- action tools (these MUTATE data) ---------------------------------------
 # Kept in a separate registry from the read tools above. They reuse the exact
 # same rules as the triage UI (assign every row of a merchant + remember it via
@@ -321,6 +347,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "get_spending_summary": get_spending_summary,
     "get_spending_by_category": get_spending_by_category,
     "get_top_merchants": get_top_merchants,
+    "get_largest_transactions": get_largest_transactions,
     "search_transactions": search_transactions,
     "list_events": list_events,
     "compare_periods": compare_periods,
@@ -339,6 +366,7 @@ TOOL_SPECS = """\
 - get_spending_summary(start?, end?): totals spent/received/net and count for a date range.
 - get_spending_by_category(start?, end?, category?): spending grouped by category; pass `category` to focus one.
 - get_top_merchants(start?, end?, limit?): biggest merchants by spend for a date range.
+- get_largest_transactions(start?, end?, limit?): the single biggest individual spends (biggest expense).
 - search_transactions(keyword, start?, end?, limit?): find transactions whose merchant matches a keyword.
 - list_events(): list the user's trips/events with totals.
 - compare_periods(period_a_start, period_a_end, period_b_start, period_b_end): compare two date ranges.

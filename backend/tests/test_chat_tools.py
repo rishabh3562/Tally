@@ -85,3 +85,13 @@ def test_clamp_limit():
     assert chat_tools._clamp_limit(999, 10, 15) == 15
     assert chat_tools._clamp_limit(0, 10, 15) == 1
     assert chat_tools._clamp_limit(7, 10, 15) == 7
+
+
+def test_get_largest_transactions_sorted_and_canonicalized():
+    db = _mk_db(transactions=[
+        _txn(100, merchant="AmazonIndia"), _txn(900, merchant="AmazonPay"), _txn(400, merchant="Uber"),
+    ])
+    out = chat_tools.get_largest_transactions(db, "u", limit=2)
+    assert out["transactions"][0]["amount"] == 900
+    assert out["transactions"][0]["merchant"] == "Amazon"   # canonicalized
+    assert len(out["transactions"]) == 2
