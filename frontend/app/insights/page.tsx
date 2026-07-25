@@ -111,6 +111,34 @@ export default function InsightsPage() {
 
   const contributionClusters = contributions?.data ?? [];
 
+  // Promote a detected split-expense cluster into a tracked case-study event
+  // (the #8 → #9 link). Includes the linked spend plus every repayment.
+  const [savedCluster, setSavedCluster] = useState<string | null>(null);
+  const saveCluster = useMutation({
+    mutationFn: async (c: (typeof contributionClusters)[number]) => {
+      const ids = [
+        ...(c.source_debit ? [c.source_debit.id] : []),
+        ...c.transaction_ids,
+      ];
+      const name = c.source_debit
+        ? `Split: ${c.source_debit.merchant}`
+        : `Split expense (${formatDate(c.date)})`;
+      await apiClient.post("/api/events", {
+        name,
+        description: `${c.count} people repaid ${formatCurrency(
+          c.total_received
+        )}${c.net_cost !== null ? ` — net cost ${formatCurrency(c.net_cost)}` : ""}.`,
+        transaction_ids: ids,
+      });
+      return name;
+    },
+    onSuccess: (name, c) => {
+      setSavedCluster(`${c.date}`);
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      setTimeout(() => setSavedCluster(null), 3000);
+    },
+  });
+
   const maxCategory = Math.max(1, ...(summary?.top_categories ?? []).map((c) => c.total));
   const maxMonthly = Math.max(
     1,
@@ -357,11 +385,27 @@ export default function InsightsPage() {
                       {formatCurrency(c.total_received)} received
                     </p>
                   </div>
-                  {c.source_debit && c.net_cost !== null && (
-                    <span className="shrink-0 text-sm font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full whitespace-nowrap">
-                      net {formatCurrency(c.net_cost)}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {c.source_debit && c.net_cost !== null && (
+                      <span className="text-sm font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full whitespace-nowrap">
+                        net {formatCurrency(c.net_cost)}
+                      </span>
+                    )}
+                    {savedCluster === c.date ? (
+                      <span className="text-xs font-medium text-green-600 whitespace-nowrap">
+                        ✓ Saved
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => saveCluster.mutate(c)}
+                        disabled={saveCluster.isPending}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap disabled:opacity-50"
+                        title="Track this split as a case study"
+                      >
+                        Save as case study
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {c.source_debit && (
                   <div className="mt-3 pt-3 border-t border-gray-100 text-sm text-gray-700">
