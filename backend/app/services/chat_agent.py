@@ -118,6 +118,10 @@ def _action_confirmation(transcript: list[dict[str, Any]]) -> str | None:
                 if res.get("created")
                 else f"The category “{name}” already exists."
             )
+        if action == "rename_category":
+            return (
+                f"Renamed “{res.get('old_name')}” to “{res.get('new_name')}”."
+            )
     return None
 
 

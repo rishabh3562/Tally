@@ -341,6 +341,41 @@ def create_category(
     return {"action": "create_category", "category": (row or [{}])[0], "created": True}
 
 
+def rename_category(
+    db: Client, user_id: str, *, old_name: str = "", new_name: str = "",
+    question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Rename one of the user's OWN categories. Never a system category (user_id
+    NULL) — those are shared across everyone, so renaming one is forbidden. Scoped
+    to the caller's user_id (service-role bypasses RLS, so the .eq is the guard)."""
+    old_name = (old_name or "").strip()
+    new_name = (new_name or "").strip()
+    if not old_name or not new_name:
+        return {"error": "both the current and the new category name are required"}
+    if old_name.lower() == new_name.lower():
+        return {"error": f"“{old_name}” is already called that"}
+    owned = (
+        db.table("categories").select("id,name")
+        .eq("user_id", user_id).ilike("name", old_name).execute().data
+        or []
+    )
+    if not owned:
+        visible = _visible_categories(db, user_id)
+        if any(c["name"].lower() == old_name.lower() for c in visible):
+            return {"error": f"“{old_name}” is a built-in category and can't be renamed"}
+        return {"error": f"you don't have a category called “{old_name}”"}
+    # Don't let a rename collide with another existing (own or system) name.
+    if any(
+        c["name"].lower() == new_name.lower() and c["id"] != owned[0]["id"]
+        for c in _visible_categories(db, user_id)
+    ):
+        return {"error": f"a category called “{new_name}” already exists"}
+    db.table("categories").update({"name": new_name}).eq(
+        "id", owned[0]["id"]
+    ).eq("user_id", user_id).execute()
+    return {"action": "rename_category", "old_name": owned[0]["name"], "new_name": new_name}
+
+
 # --- registry & schema (fed to the model) -----------------------------------
 
 TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -358,6 +393,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
 ACTION_TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "categorize_merchant": categorize_merchant,
     "create_category": create_category,
+    "rename_category": rename_category,
 }
 
 # Human-readable schema injected into the selection prompt. Kept terse on purpose:
@@ -375,4 +411,5 @@ Dates are YYYY-MM-DD. Fields marked ? are optional; omit them if the user gave n
 # Action tools shown to the model only when the user asks to CHANGE something.
 ACTION_SPECS = """\
 - categorize_merchant(merchant, category): set the category for EVERY payment whose merchant matches `merchant` (substring) and remember it. `category` must be an existing category name.
-- create_category(name): create a new custom category (e.g. 'Rent'). Use this first if the category the user wants does not exist, then call categorize_merchant."""
+- create_category(name): create a new custom category (e.g. 'Rent'). Use this first if the category the user wants does not exist, then call categorize_merchant.
+- rename_category(old_name, new_name): rename one of the user's OWN custom categories. Cannot rename built-in categories."""

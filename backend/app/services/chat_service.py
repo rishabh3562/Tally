@@ -527,6 +527,14 @@ _CREATE_CAT_RE = re.compile(
     r"(?:called\s+|named\s+)?(?P<name>.+?)[.!?]*\s*$",
     re.IGNORECASE,
 )
+# "rename Rnt to Rent", "rename the category Food to Groceries", "rename my
+# Petrol category to Fuel". `rename` isn't a word normal finance questions use,
+# so gating on it + a trailing `to` keeps mis-parse risk low.
+_RENAME_CAT_RE = re.compile(
+    r"\brename\s+(?:the\s+|my\s+)?(?:categor(?:y|ies)\s+)?"
+    r"(?P<old>.+?)\s+(?:categor(?:y|ies)\s+)?to\s+(?P<new>.+?)[.!?]*\s*$",
+    re.IGNORECASE,
+)
 
 
 def try_action(
@@ -550,6 +558,17 @@ def try_action(
         if trace is not None:
             trace.append({"tool": tool, "args": args, "result": result})
         return _action_confirmation([{"tool": tool, "result": result}])
+
+    m = _RENAME_CAT_RE.search(q)
+    if m:
+        old_name = m.group("old").strip().strip("\"'")
+        new_name = m.group("new").strip().strip("\"'")
+        res = chat_tools.rename_category(
+            db, user_id, old_name=old_name, new_name=new_name
+        )
+        return _run(
+            "rename_category", {"old_name": old_name, "new_name": new_name}, res
+        )
 
     m = _CREATE_CAT_RE.search(q)
     if m:
