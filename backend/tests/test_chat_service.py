@@ -314,3 +314,25 @@ def test_transfers_is_a_recognized_category():
 def test_who_and_merchants_still_route_to_merchant_breakdown():
     assert cs.classify_intent("who did I pay the most") == cs.IntentType.MERCHANT_BREAKDOWN
     assert cs.classify_intent("what are my top merchants") == cs.IntentType.MERCHANT_BREAKDOWN
+
+
+# --- merchant-specific spend + received queries (found on real data) ---
+
+def test_extract_merchant_target():
+    assert cs._extract_merchant_target("how much did I spend at amazon") == "amazon"
+    assert cs._extract_merchant_target("how much did I pay priya") == "priya"
+    assert cs._extract_merchant_target("how much did I spend at amazon last month") == "amazon"
+    assert cs._extract_merchant_target("how much did I spend") is None
+
+
+def test_is_received_query():
+    assert cs._is_received_query("how much money did I get back") is True
+    assert cs._is_received_query("did anyone refund me") is True
+    assert cs._is_received_query("how much did I spend") is False
+
+
+def test_answer_received_totals_credits():
+    txns = [_txn(100), _txn(-30), _txn(-20)]   # two credits (received)
+    out = cs._answer_received(txns, "all time")
+    assert "Rs 50" in out
+    assert "2 transactions" in out

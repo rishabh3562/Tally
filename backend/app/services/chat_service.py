@@ -242,6 +242,63 @@ def _answer_merchant_breakdown(txns: list[dict], period: str) -> str:
     return f"Your top merchants for {period}: {breakdown}."
 
 
+_MERCHANT_CONNECTORS = [" paid to ", " at ", " to ", " pay ", " paid ", " from ", " on ", " with "]
+
+
+def _extract_merchant_target(question: str) -> Optional[str]:
+    """Pull a merchant/person name out of 'spend at X' / 'pay X' / 'to X'."""
+    q = question.lower().strip(" ?.!")
+    for c in _MERCHANT_CONNECTORS:
+        if c in q:
+            cand = q.split(c, 1)[1].strip()
+            cand = re.split(r"\b(last|this|in|during|for|over|between|month|year)\b", cand)[0]
+            cand = cand.strip(" ?.!")
+            if len(cand) >= 3:
+                return cand
+    return None
+
+
+def _try_merchant_spend(
+    db: Client, user_id: str, question: str, start: Optional[str], end: Optional[str]
+) -> Optional[str]:
+    """Answer 'how much did I spend at/pay <merchant>' by matching raw_merchant.
+    Returns None if no merchant is named or nothing matches (let other handlers try)."""
+    target = _extract_merchant_target(question)
+    if not target:
+        return None
+    q = (
+        db.table("transactions").select("amount,raw_merchant")
+        .eq("user_id", user_id).eq("is_transfer", False)
+        .ilike("raw_merchant", f"%{target}%")
+    )
+    if start:
+        q = q.gte("date", start)
+    if end:
+        q = q.lte("date", end)
+    rows = q.execute().data or []
+    if not rows:
+        return None
+    spend = [r for r in rows if float(r.get("amount") or 0) >= 0]
+    total = sum(float(r["amount"]) for r in spend)
+    names = sorted({r["raw_merchant"] for r in rows if r.get("raw_merchant")})
+    who = names[0] if len(names) == 1 else f"{len(names)} merchants matching '{target}'"
+    return f"You spent {_rupees(total)} at {who} across {len(spend)} transactions."
+
+
+def _is_received_query(question: str) -> bool:
+    q = question.lower()
+    return any(w in q for w in ["get back", "got back", "received", "refund",
+                                "money back", "paid me", "sent me", "come in", "came in"])
+
+
+def _answer_received(txns: list[dict], period: str) -> str:
+    total = sum(-float(t["amount"]) for t in txns if float(t.get("amount") or 0) < 0)
+    n = sum(1 for t in txns if float(t.get("amount") or 0) < 0)
+    if n == 0:
+        return f"You didn't receive anything for {period}."
+    return f"You received {_rupees(total)} across {n} transactions ({period})."
+
+
 def _answer_open_ended(txns: list[dict], period: str) -> str:
     total_spent = sum(float(t["amount"]) for t in _spend_only(txns))
     total_received = sum(-float(t["amount"]) for t in txns if float(t.get("amount") or 0) < 0)
@@ -334,6 +391,13 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
     if intent == IntentType.MERCHANT_BREAKDOWN:
         return _answer_merchant_breakdown(txns, period)
     if intent == IntentType.TOTAL_BY_CATEGORY:
+        if _is_received_query(question):
+            return _answer_received(txns, period)
+        # "spend at/to/pay <merchant>" when no category was named.
+        if not extract_category(question):
+            merchant_ans = _try_merchant_spend(db, user_id, question, start, end)
+            if merchant_ans:
+                return merchant_ans
         return _answer_total_by_category(txns, question, period)
     return _answer_open_ended(txns, period)
 
