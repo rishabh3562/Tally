@@ -27,6 +27,25 @@ export const useCategories = () => {
     return m;
   }, [categories]);
 
+  // Resolve a category id to its TOP-LEVEL ancestor name, so sub-category spend
+  // (Food › Pizza) rolls up into the parent slice on dashboards/insights instead
+  // of fragmenting the breakdown. Guards against cycles.
+  const rootNameById = useMemo(() => {
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    const resolve = (id: string): string => {
+      let cur = byId.get(id);
+      const seen = new Set<string>();
+      while (cur?.parent_id && byId.has(cur.parent_id) && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        cur = byId.get(cur.parent_id);
+      }
+      return cur?.name ?? "";
+    };
+    const m = new Map<string, string>();
+    for (const c of categories) m.set(c.id, resolve(c.id));
+    return m;
+  }, [categories]);
+
   // Create a user-scoped custom category (e.g. "Rent", "Loan given"). The
   // backend is idempotent by name, so calling with an existing name just
   // returns it. Resolves to the created/reused Category.
@@ -40,5 +59,5 @@ export const useCategories = () => {
     },
   });
 
-  return { categories, nameById, isLoading, error, createCategory };
+  return { categories, nameById, rootNameById, isLoading, error, createCategory };
 };

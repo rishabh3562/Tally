@@ -27,7 +27,7 @@ export default function DashboardPage() {
     },
   });
 
-  const { nameById } = useCategories();
+  const { nameById, rootNameById } = useCategories();
 
   const { data: triageData } = useQuery({
     queryKey: ["triage"],
@@ -43,9 +43,13 @@ export default function DashboardPage() {
 
   // Calculate category totals. The list endpoint returns category_id (not a
   // name), so resolve it through the categories map — otherwise every row falls
-  // into one bucket and the pie is meaningless.
+  // into one bucket and the pie is meaningless. Sub-categories roll up to their
+  // top-level parent (Food › Pizza counts under Food) so the pie stays legible.
   const categoryTotals = transactions.reduce((acc: Record<string, number>, tx: any) => {
-    const category = nameById.get(tx.category_id) || "Uncategorized";
+    const category =
+      rootNameById.get(tx.category_id) ||
+      nameById.get(tx.category_id) ||
+      "Uncategorized";
     acc[category] = (acc[category] || 0) + tx.amount;
     return acc;
   }, {});

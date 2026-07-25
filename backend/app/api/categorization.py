@@ -77,14 +77,15 @@ async def create_category(
                     detail="Parent category not found.",
                 )
 
-        # Reuse an existing visible category with the same name AND same parent
-        # (so 'Pizza' can exist under both Swiggy and Zomato).
-        candidates = db.table("categories").select("id,name,icon,user_id,parent_id").or_(
+        # Reuse an existing visible category with the same name. Names are kept
+        # GLOBALLY UNIQUE (not per-parent) because name->id lookups elsewhere
+        # (triage, recategorize, chat categorize_merchant) key on name — allowing
+        # duplicate names there would silently resolve to an arbitrary one.
+        existing = db.table("categories").select("id,name,icon,user_id,parent_id").or_(
             f"user_id.is.null,user_id.eq.{user_id}"
         ).ilike("name", name).execute().data or []
-        dup = next((c for c in candidates if c.get("parent_id") == parent_id), None)
-        if dup:
-            return {"data": dup, "created": False}
+        if existing:
+            return {"data": existing[0], "created": False}
 
         row = db.table("categories").insert({
             "name": name,

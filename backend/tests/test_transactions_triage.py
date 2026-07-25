@@ -73,6 +73,7 @@ class _FakeQuery:
         self.table = table
         self.store = store
         self.eqs = {}
+        self._ilike = None
         self._op = "select"
         self._payload = None
         self._on_conflict = None
@@ -88,6 +89,7 @@ class _FakeQuery:
         return self
 
     def ilike(self, col, val):
+        self._ilike = (col, str(val).strip("%").lower())
         return self
 
     def is_(self, col, val):
@@ -118,7 +120,11 @@ class _FakeQuery:
             "eqs": self.eqs, "on_conflict": self._on_conflict,
         })
         if self._op == "select":
-            return _Res(self.store["data"].get(self.table, []))
+            rows = self.store["data"].get(self.table, [])
+            if self._ilike:
+                col, sub = self._ilike
+                rows = [r for r in rows if sub in str(r.get(col) or "").lower()]
+            return _Res(rows)
         return _Res(self.store.get(self._op + "_rows", [{"id": "x"}]))
 
 
@@ -220,4 +226,18 @@ async def test_create_subcategory_rejects_unknown_parent():
             CategoryCreate(name="Pizza", parent_id="p-missing"), user_id="u1", db=_FakeDB(store),
         )
     assert ei.value.status_code == 404
+    assert not any(l["op"] == "insert" for l in store["log"])
+
+
+async def test_category_names_stay_globally_unique():
+    # Names must be unique regardless of parent — name->id lookups elsewhere
+    # (triage/recategorize/chat) key on name and can't disambiguate duplicates.
+    store = {"data": {"categories": [
+        {"id": "existing", "name": "Pizza", "user_id": "u1", "parent_id": "other-parent"},
+    ]}, "log": []}
+    res = await categorization.create_category(
+        CategoryCreate(name="Pizza", parent_id="p1"), user_id="u1", db=_FakeDB(store),
+    )
+    assert res["created"] is False               # reused, not duplicated
+    assert res["data"]["id"] == "existing"
     assert not any(l["op"] == "insert" for l in store["log"])
