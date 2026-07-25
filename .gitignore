@@ -328,3 +328,8 @@ infrastructure/terraform/.terraformrc
 infrastructure/terraform/terraform.rc
 infrastructure/terraform/*.tfplan
 infrastructure/terraform/tfplan*
+
+# The frontend's SOURCE lib/ (api client, supabase, formatters) — not the Python
+# venv lib/ that the rule above targets. Keep it tracked so a clone isn't broken.
+!frontend/lib/
+!frontend/lib/**
