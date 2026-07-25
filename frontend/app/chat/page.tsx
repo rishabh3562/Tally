@@ -160,6 +160,7 @@ export default function ChatPage() {
           <button
             type="submit"
             disabled={isLoading || !input.trim()}
+            aria-label="Send message"
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white p-2 rounded-lg transition"
           >
             <Send className="w-5 h-5" />

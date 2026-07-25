@@ -254,6 +254,7 @@ export default function AccountsPage() {
                     }
                   }}
                   disabled={deleteMutation.isPending}
+                  aria-label={`Delete account ${account.name}`}
                   className="absolute top-4 right-4 text-red-600 hover:text-red-700 disabled:opacity-50"
                 >
                   <Trash2 className="w-5 h-5" />
