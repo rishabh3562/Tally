@@ -6,8 +6,14 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import apiClient from "@/lib/api";
 import { useTransactions } from "@/hooks/useTransactions";
+import { useCategories } from "@/hooks/useCategories";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import type { CategorySuggestion, Group, TransactionListItem } from "@/types";
+import type {
+  Category,
+  CategorySuggestion,
+  Group,
+  TransactionListItem,
+} from "@/types";
 
 const itemsPerPage = 50;
 
@@ -29,15 +35,18 @@ function TransactionRow({
   tx,
   selected,
   onToggle,
+  categories,
 }: {
   tx: TransactionListItem;
   selected: boolean;
   onToggle: (id: string) => void;
+  categories: Category[];
 }) {
   const queryClient = useQueryClient();
   const [showPanel, setShowPanel] = useState(false);
   const [suggestion, setSuggestion] = useState<CategorySuggestion | null>(null);
   const [applied, setApplied] = useState(false);
+  const [savedHint, setSavedHint] = useState(false);
 
   const isCredit = tx.direction === "credit";
 
@@ -68,6 +77,24 @@ function TransactionRow({
     },
     onSuccess: () => {
       setApplied(true);
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    },
+  });
+
+  // Manual category fix. Unlike the AI "Apply" button, this sends
+  // merchant_correction: true so the backend upserts a learning_record —
+  // every future import from this merchant will use this category ("sticks").
+  const categoryMutation = useMutation({
+    mutationFn: async (categoryId: string) => {
+      const res = await apiClient.patch(`/api/transactions/${tx.id}/category`, {
+        category_id: categoryId,
+        merchant_correction: true,
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      setSavedHint(true);
+      setTimeout(() => setSavedHint(false), 2500);
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
@@ -107,6 +134,34 @@ function TransactionRow({
         >
           {formatCurrency(tx.amount)}
         </td>
+        <td className="px-6 py-4 whitespace-nowrap">
+          <div className="flex items-center gap-2">
+            <select
+              value={tx.category_id ?? ""}
+              onChange={(e) =>
+                e.target.value && categoryMutation.mutate(e.target.value)
+              }
+              disabled={categoryMutation.isPending || categories.length === 0}
+              className="text-sm border border-gray-300 rounded-lg px-2 py-1 bg-white max-w-[11rem] disabled:opacity-50"
+              aria-label={`Category for ${tx.raw_merchant}`}
+            >
+              <option value="" disabled>
+                Uncategorized
+              </option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icon ? `${c.icon} ` : ""}
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {savedHint && (
+              <span className="text-xs font-medium text-green-600 whitespace-nowrap">
+                ✓ Remembered
+              </span>
+            )}
+          </div>
+        </td>
         <td className="px-6 py-4 text-right whitespace-nowrap">
           <button
             onClick={() => {
@@ -133,7 +188,7 @@ function TransactionRow({
 
       {suggestFailed && (
         <tr>
-          <td colSpan={5} className="px-6 pb-4">
+          <td colSpan={6} className="px-6 pb-4">
             <p className="text-sm text-red-600">
               Could not fetch a suggestion. Please try again.
             </p>
@@ -143,7 +198,7 @@ function TransactionRow({
 
       {showPanel && suggestion && (
         <tr>
-          <td colSpan={5} className="px-6 pb-4 bg-blue-50/40">
+          <td colSpan={6} className="px-6 pb-4 bg-blue-50/40">
             <div className="rounded-lg border border-blue-200 bg-white p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -215,6 +270,7 @@ export default function TransactionsPage() {
     start_date: startDate || undefined,
     end_date: endDate || undefined,
   });
+  const { categories } = useCategories();
 
   const rows = transactions as TransactionListItem[];
   const totalPages = Math.ceil(total / itemsPerPage);
@@ -413,6 +469,9 @@ export default function TransactionsPage() {
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                 Amount
               </th>
+              <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                Category
+              </th>
               <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">
                 AI
               </th>
@@ -421,19 +480,19 @@ export default function TransactionsPage() {
           <tbody className="divide-y">
             {isLoading ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                   Loading transactions...
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-red-600">
+                <td colSpan={6} className="px-6 py-8 text-center text-red-600">
                   Failed to load transactions. Please try again.
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                   No transactions found
                 </td>
               </tr>
@@ -444,6 +503,7 @@ export default function TransactionsPage() {
                   tx={tx}
                   selected={selected.has(tx.id)}
                   onToggle={toggleOne}
+                  categories={categories}
                 />
               ))
             )}
