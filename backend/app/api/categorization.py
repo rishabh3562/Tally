@@ -12,6 +12,7 @@ from supabase import Client
 
 from app.core.auth import get_current_user
 from app.core.database import get_supabase
+from app.schemas.categories import CategoryCreate
 from app.services import llm_client
 from app.services.categorizer import llm_categorize_merchants, rule_category
 
@@ -28,17 +29,55 @@ async def list_categories(
     user_id: str = Depends(get_current_user),
     db: Client = Depends(get_supabase),
 ):
-    """List selectable categories (id + name) for category pickers.
+    """List selectable categories (id + name + icon) for category pickers.
 
-    Returns the system categories (``user_id IS NULL``) — the same set the
-    rule engine and ``suggest-category`` resolve against — so a dropdown can
-    send a real ``category_id`` to ``PATCH /transactions/{id}/category``.
+    Returns the **system** categories (``user_id IS NULL``) **plus the caller's
+    own custom ones** — so a picker can send a real ``category_id`` to
+    ``PATCH /transactions/{id}/category`` or ``POST /transactions/assign-merchant``.
     """
     try:
-        cats = db.table("categories").select("id,name,icon").is_(
-            "user_id", "null"
+        cats = db.table("categories").select("id,name,icon,user_id").or_(
+            f"user_id.is.null,user_id.eq.{user_id}"
         ).order("name").execute().data or []
         return {"data": cats}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@router.post("/categories", status_code=status.HTTP_201_CREATED)
+async def create_category(
+    body: CategoryCreate,
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Create a user-scoped custom category (e.g. 'Rent', 'Loan given').
+
+    Idempotent by name: if a system or user category with the same name (case-
+    insensitive) already exists it is returned instead of creating a duplicate,
+    so the picker's "create new" action is safe to call optimistically.
+    """
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Category name is required.",
+        )
+    try:
+        # Reuse an existing visible category with the same name (system or mine).
+        existing = db.table("categories").select("id,name,icon,user_id").or_(
+            f"user_id.is.null,user_id.eq.{user_id}"
+        ).ilike("name", name).execute().data or []
+        if existing:
+            return {"data": existing[0], "created": False}
+
+        row = db.table("categories").insert({
+            "name": name,
+            "icon": body.icon or "🏷️",
+            "user_id": user_id,
+        }).execute().data
+        return {"data": (row or [{}])[0], "created": True}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)

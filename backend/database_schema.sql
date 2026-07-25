@@ -240,6 +240,7 @@ INSERT INTO categories (name, icon, user_id) VALUES
   ('Education', '📚', NULL),
   ('Travel', '✈️', NULL),
   ('Subscriptions', '📱', NULL),
+  ('Transfers', '💸', NULL),
   ('Other', '📌', NULL)
 ON CONFLICT DO NOTHING;
 

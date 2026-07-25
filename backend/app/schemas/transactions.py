@@ -39,3 +39,13 @@ class CategoryPatchRequest(BaseModel):
     """Schema for updating transaction category."""
     category_id: str
     merchant_correction: Optional[bool] = False
+
+
+class AssignMerchantRequest(BaseModel):
+    """Assign a category to every transaction of a given raw merchant.
+
+    Used by the triage screen: labelling a merchant once applies to all of its
+    existing rows and is remembered (``learning_records``) for future imports.
+    """
+    raw_merchant: str
+    category_id: str
