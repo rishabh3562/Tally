@@ -23,12 +23,12 @@ CREATE INDEX IF NOT EXISTS idx_transactions_upi_txn_id ON transactions(upi_trans
 CREATE INDEX IF NOT EXISTS idx_transactions_source_job ON transactions(source_job_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id);
 
--- 4) ONE-TIME RESET (approved): the dedup fingerprint formula now keys on the
---    UPI transaction id, so previously-imported rows would no longer match on
---    re-upload. Clear transactions and re-upload the statement once. This does
---    NOT touch accounts, categories, or users.
-TRUNCATE TABLE transaction_categories, event_transactions CASCADE;
-DELETE FROM transactions;
+-- 4) (Optional, NOT included here) The dedup fingerprint now keys on the UPI
+--    transaction id, so to get UPI ids / provenance on your EXISTING rows you'd
+--    re-upload the statement. Adding the columns above is non-destructive and
+--    leaves current rows intact (new columns just become NULL). If you DO want a
+--    clean re-import, run the clearly-labelled `optional_reset_transactions.sql`
+--    separately — it is deliberately NOT part of this schema-alignment migration.
 
 -- 5) STORAGE (do this in the dashboard, not SQL):
 --    Storage -> New bucket -> name "statements", PRIVATE (uncheck "Public").
