@@ -13,10 +13,12 @@ rough
 # Documentation - Keep only essential README files
 docs/
 *.md
+*.sh
 !README.md
 !**/README.md
 !SETUP_ENV.md
 !SETUP.md
+.serena
 
 # Environments & Secrets
 .env
@@ -302,6 +304,9 @@ backend/.next/
 backend/dist/
 backend/build/
 backend/.eggs/
+
+.serena/
+.mcp.json
 
 # Terraform
 infrastructure/terraform/.terraform/
