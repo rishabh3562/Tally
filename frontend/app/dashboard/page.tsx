@@ -212,7 +212,7 @@ export default function DashboardPage() {
       {triageCount > 0 && (
         <Link
           href="/triage"
-          className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-lg p-4 hover:bg-amber-100 transition"
+          className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-lg p-4 hover:bg-amber-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
         >
           <div className="flex items-center gap-3">
             <ListChecks className="w-6 h-6 text-amber-600 shrink-0" />
