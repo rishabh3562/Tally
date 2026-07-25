@@ -57,7 +57,9 @@ def classify_intent(question: str) -> IntentType:
     if any(kw in q for kw in ["merchant", "store", "vendor", "shop", "where", "who"]):
         return IntentType.MERCHANT_BREAKDOWN
 
-    if any(kw in q for kw in ["compare", "compared", "comparison", "vs", "versus", "difference"]):
+    if any(kw in q for kw in ["compare", "compared", "comparison", "vs", "versus",
+                              "difference", "more than", "less than", "than last",
+                              "than the"]):
         return IntentType.PERIOD_COMPARISON
 
     if any(kw in q for kw in ["total", "spent", "spend", "spending", "amount", "how much"]):
@@ -119,6 +121,28 @@ def parse_period(question: str, today: Optional[date] = None) -> tuple[Optional[
             return date(year, month_num, 1).isoformat(), date(year, month_num, last_day).isoformat()
 
     return None, None
+
+
+_COMPARE_CONNECTIVES = [" versus ", " vs. ", " vs ", " compared to ", " compared with ", " than ", " and "]
+
+
+def parse_two_periods(
+    question: str, today: Optional[date] = None
+) -> Optional[tuple[tuple, tuple]]:
+    """Parse a comparison like 'this month vs last month' or 'June and July' into
+    two ``(start, end)`` ranges. Returns None if two periods can't be resolved."""
+    q = question.lower()
+    for conn in _COMPARE_CONNECTIVES:
+        if conn in q:
+            left, right = q.split(conn, 1)
+            a = parse_period(left, today)
+            b = parse_period(right, today)
+            if a != (None, None) and b != (None, None):
+                return a, b
+    # Fallback: both relative terms present without an explicit connective.
+    if "this month" in q and ("last month" in q or "previous month" in q):
+        return parse_period("this month", today), parse_period("last month", today)
+    return None
 
 
 def _period_label(start: Optional[str], end: Optional[str]) -> str:
@@ -221,6 +245,33 @@ def _answer_open_ended(txns: list[dict], period: str) -> str:
     )
 
 
+def _answer_comparison(db: Client, user_id: str, question: str) -> str:
+    """Compare spending between two periods named in the question."""
+    parsed = parse_two_periods(question)
+    if not parsed:
+        # Couldn't resolve two periods — degrade to a single-period summary.
+        start, end = parse_period(question)
+        return _answer_open_ended(_fetch_transactions(db, user_id, start, end),
+                                  _period_label(start, end))
+    (a_start, a_end), (b_start, b_end) = parsed
+    a_spend = sum(float(t["amount"]) for t in _spend_only(
+        _fetch_transactions(db, user_id, a_start, a_end)))
+    b_spend = sum(float(t["amount"]) for t in _spend_only(
+        _fetch_transactions(db, user_id, b_start, b_end)))
+    a_label, b_label = _period_label(a_start, a_end), _period_label(b_start, b_end)
+    diff = a_spend - b_spend
+    if diff > 0:
+        verdict = f"{_rupees(diff)} more in the first"
+    elif diff < 0:
+        verdict = f"{_rupees(-diff)} more in the second"
+    else:
+        verdict = "the same in both"
+    return (
+        f"{a_label}: {_rupees(a_spend)}. {b_label}: {_rupees(b_spend)}. "
+        f"You spent {verdict}."
+    )
+
+
 def _answer_events(db: Client, user_id: str) -> str:
     rows = (
         db.table("events")
@@ -247,6 +298,9 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
 
     if intent == IntentType.EVENT_QUERY:
         return _answer_events(db, user_id)
+
+    if intent == IntentType.PERIOD_COMPARISON:
+        return _answer_comparison(db, user_id, question)
 
     start, end = parse_period(question)
     period = _period_label(start, end)
