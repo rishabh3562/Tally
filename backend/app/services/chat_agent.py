@@ -26,7 +26,9 @@ from app.services import chat_tools, llm_client
 
 logger = logging.getLogger("tally.chat.agent")
 
-DEFAULT_MAX_STEPS = 2
+# 3 hops so a "create category, then categorize" request (create_category ->
+# categorize_merchant -> final) fits; single actions/questions still finish in 2.
+DEFAULT_MAX_STEPS = 3
 _TOOL_MAX_TOKENS = 700
 _ANSWER_MAX_TOKENS = 300
 
@@ -74,6 +76,51 @@ def _verify_figures(answer: str, transcript: list[dict[str, Any]]) -> bool:
     return True
 
 
+def _action_confirmation(transcript: list[dict[str, Any]]) -> str | None:
+    """Deterministic confirmation for a write-action, composed from the tool result.
+
+    Actions carry counts, not `Rs` figures, so `_verify_figures` can't police them
+    and a weak model could misstate "labeled 4" when 40 changed. So for any action
+    tool we author the confirmation ourselves from the real result — the model
+    never gets to invent the number. Returns None when no action tool ran.
+    """
+    for entry in reversed(transcript):
+        if entry.get("tool") not in chat_tools.ACTION_TOOLS:
+            continue
+        res = entry.get("result")
+        if not isinstance(res, dict):
+            continue
+        if "error" in res:
+            avail = res.get("available_categories")
+            tail = f" Existing categories: {', '.join(avail)}." if avail else ""
+            return f"I couldn't do that — {res['error']}.{tail}"
+        action = res.get("action")
+        if action == "categorize_merchant":
+            if res.get("needs_confirmation"):
+                ms = ", ".join(res.get("matched_merchants", []))
+                return (
+                    f"“{res.get('merchant_query')}” matches several merchants "
+                    f"({ms}). Tell me a more specific name to categorize as "
+                    f"{res.get('category')}."
+                )
+            n = int(res.get("transactions_updated", 0) or 0)
+            ms = res.get("matched_merchants", [])
+            if not ms or n == 0:
+                return f"I couldn't find any payments matching “{res.get('merchant_query')}”."
+            return (
+                f"Categorized {n} payment{'s' if n != 1 else ''} from "
+                f"{', '.join(ms)} as {res.get('category')}. Future imports will match too."
+            )
+        if action == "create_category":
+            name = (res.get("category") or {}).get("name", "")
+            return (
+                f"Created the category “{name}”."
+                if res.get("created")
+                else f"The category “{name}” already exists."
+            )
+    return None
+
+
 def _normalize_currency(text: str) -> str:
     """Force INR presentation. Weak free-tier models often ignore the 'use Rs'
     instruction and emit '$' or the rupee sign, which is misleading in this
@@ -92,10 +139,13 @@ def _selection_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
             transcript, default=str
         )[:1500]
     return (
-        "You are a personal-finance assistant that answers by calling tools over the "
-        f"user's own transaction data. Today is {today}.\n\n"
-        "Available tools:\n"
+        "You are a personal-finance assistant that answers questions AND makes changes "
+        f"to the user's own transaction data by calling tools. Today is {today}.\n\n"
+        "Read tools (answer questions):\n"
         f"{chat_tools.TOOL_SPECS}\n\n"
+        "Action tools (use ONLY when the user explicitly asks to change/label/categorize "
+        "something). After an action, give a final answer confirming exactly what changed:\n"
+        f"{chat_tools.ACTION_SPECS}\n\n"
         "CRITICAL: Output ONLY one JSON object and nothing else. No reasoning, no prose. "
         "Your reply MUST start with '{'. Use exactly one of these shapes:\n"
         '{"action":"call_tool","tool":"<name>","args":{...}}\n'
@@ -106,6 +156,8 @@ def _selection_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
         '{"action":"call_tool","tool":"get_spending_by_category","args":{"start":"2026-06-01","end":"2026-06-30","category":"food"}}\n'
         'User: Did I spend more this month than last?\n'
         '{"action":"call_tool","tool":"compare_periods","args":{"period_a_start":"2026-07-01","period_a_end":"2026-07-12","period_b_start":"2026-06-01","period_b_end":"2026-06-30"}}\n'
+        'User: Put all my swiggy orders under Food & Dining\n'
+        '{"action":"call_tool","tool":"categorize_merchant","args":{"merchant":"swiggy","category":"Food & Dining"}}\n'
         f"{history}\n\n"
         f"User: {question}\n"
     )
@@ -114,10 +166,12 @@ def _selection_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
 def _answer_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
     return (
         "You are a friendly personal-finance assistant. Using ONLY the tool results "
-        "below, answer the user's question in one to three sentences. All amounts are "
-        "in Indian Rupees: write every amount as 'Rs 1,200' — never use '$', never use "
-        "the rupee sign, never any other currency. Do NOT invent or recompute any "
-        "number; use the figures exactly as given. If the data is empty, say so plainly.\n\n"
+        "below, answer the user's question in one to three sentences. If the result is an "
+        "action (it has an 'action' field), confirm exactly what changed — how many "
+        "payments and which category — do not invent numbers. All amounts are in Indian "
+        "Rupees: write every amount as 'Rs 1,200' — never use '$', never the rupee sign, "
+        "never any other currency. Do NOT invent or recompute any number; use the figures "
+        "exactly as given. If the data is empty, say so plainly.\n\n"
         f"Question: {question}\n"
         f"Tool results: {json.dumps(transcript, default=str)[:2000]}\n\n"
         "Answer:"
@@ -125,7 +179,7 @@ def _answer_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
 
 
 def _run_tool(name: str, args: dict[str, Any], question: str, user_id: str, db: Client) -> dict[str, Any]:
-    tool = chat_tools.TOOLS.get(name)
+    tool = chat_tools.TOOLS.get(name) or chat_tools.ACTION_TOOLS.get(name)
     if tool is None:
         return {"error": f"unknown tool '{name}'"}
     if not isinstance(args, dict):
@@ -170,6 +224,11 @@ async def run_agent(
 
         action = decision.get("action")
         if action == "final":
+            # If a write-action ran, the confirmation is server-composed from the
+            # real result — never the model's (unverifiable) count.
+            confirmation = _action_confirmation(transcript)
+            if confirmation:
+                return _normalize_currency(confirmation)
             answer = str(decision.get("answer", "")).strip()
             if answer and _verify_figures(answer, transcript):
                 return _normalize_currency(answer)
@@ -188,6 +247,12 @@ async def run_agent(
 
     if not transcript:
         raise AgentUnavailable("agent produced no tool results")
+
+    # A write-action that never reached an explicit "final" still gets its
+    # deterministic, server-composed confirmation (not a model-invented count).
+    confirmation = _action_confirmation(transcript)
+    if confirmation:
+        return _normalize_currency(confirmation)
 
     # Turn the collected tool data into a natural-language answer.
     try:

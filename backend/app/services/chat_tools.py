@@ -31,6 +31,12 @@ logger = logging.getLogger("tally.chat.tools")
 # Hard cap on rows we ever feed back to a (weak, small-context) model.
 _MAX_ROWS = 15
 
+# Write-action safety: a merchant token must be at least this specific, and a
+# single bulk categorize may not silently touch more than this many DISTINCT
+# merchants (a vague token like "pay" must not relabel half the history).
+_MIN_MERCHANT_TOKEN = 4
+_MAX_BULK_MERCHANTS = 10
+
 
 def _clamp_limit(value: Any, default: int, hard_max: int) -> int:
     try:
@@ -195,6 +201,119 @@ def compare_periods(
     }
 
 
+# --- action tools (these MUTATE data) ---------------------------------------
+# Kept in a separate registry from the read tools above. They reuse the exact
+# same rules as the triage UI (assign every row of a merchant + remember it via
+# learning_records), are user-scoped, reversible (they only set category_id),
+# and always report precisely what changed so the agent can confirm it.
+
+def _visible_categories(db: Client, user_id: str) -> list[dict[str, Any]]:
+    return (
+        db.table("categories").select("id,name")
+        .or_(f"user_id.is.null,user_id.eq.{user_id}")
+        .execute().data
+        or []
+    )
+
+
+def categorize_merchant(
+    db: Client, user_id: str, *, merchant: str = "", category: str = "",
+    question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Set the category for EVERY payment whose merchant matches ``merchant``.
+
+    Substring match on raw_merchant, applied to all of the user's matching rows,
+    and remembered in ``learning_records`` for future imports. ``category`` must
+    be an existing category name (create it first with ``create_category``).
+    """
+    merchant = (merchant or "").strip()
+    category = (category or "").strip()
+    if not merchant or not category:
+        return {"error": "need both a merchant and a category"}
+    if len(merchant) < _MIN_MERCHANT_TOKEN:
+        return {
+            "error": f"'{merchant}' is too short/ambiguous — give a more specific "
+                     "merchant name so I don't relabel unrelated payments"
+        }
+
+    cats = _visible_categories(db, user_id)
+    match = next((c for c in cats if c["name"].lower() == category.lower()), None)
+    if not match:
+        return {
+            "error": f"no category named '{category}'",
+            "available_categories": [c["name"] for c in cats],
+        }
+
+    rows = (
+        db.table("transactions").select("raw_merchant")
+        .eq("user_id", user_id)
+        .ilike("raw_merchant", f"%{merchant}%")
+        .execute().data
+        or []
+    )
+    merchants = sorted({r["raw_merchant"] for r in rows if r.get("raw_merchant")})
+    if not merchants:
+        return {
+            "action": "categorize_merchant", "merchant_query": merchant,
+            "category": match["name"], "matched_merchants": [],
+            "transactions_updated": 0, "note": "no matching merchant found",
+        }
+    # Too broad: don't silently relabel many unrelated merchants — hand it back
+    # so the agent asks the user to be more specific.
+    if len(merchants) > _MAX_BULK_MERCHANTS:
+        return {
+            "action": "categorize_merchant", "needs_confirmation": True,
+            "merchant_query": merchant, "category": match["name"],
+            "matched_merchants": merchants, "transactions_updated": 0,
+        }
+
+    updated = 0
+    for m in merchants:
+        upd = (
+            db.table("transactions")
+            .update({"category_id": match["id"], "confidence_score": 1.0})
+            .eq("user_id", user_id).eq("raw_merchant", m).execute()
+        )
+        updated += len(upd.data or [])
+        try:
+            db.table("learning_records").upsert(
+                {"user_id": user_id, "raw_merchant": m, "category_id": match["id"]},
+                on_conflict="user_id,raw_merchant",
+            ).execute()
+        except Exception as e:
+            logger.warning("categorize_merchant learning upsert failed for %s: %s", m, e)
+
+    return {
+        "action": "categorize_merchant", "merchant_query": merchant,
+        "category": match["name"], "matched_merchants": merchants,
+        "transactions_updated": updated,
+    }
+
+
+def create_category(
+    db: Client, user_id: str, *, name: str = "", icon: str = "🏷️",
+    question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Create a user-scoped custom category (e.g. 'Rent'). Idempotent by name."""
+    name = (name or "").strip()
+    if not name:
+        return {"error": "category name is required"}
+    existing = (
+        db.table("categories").select("id,name")
+        .or_(f"user_id.is.null,user_id.eq.{user_id}")
+        .ilike("name", name).execute().data
+        or []
+    )
+    if existing:
+        return {"action": "create_category", "category": existing[0], "created": False}
+    row = (
+        db.table("categories")
+        .insert({"name": name, "icon": icon or "🏷️", "user_id": user_id})
+        .execute().data
+    )
+    return {"action": "create_category", "category": (row or [{}])[0], "created": True}
+
+
 # --- registry & schema (fed to the model) -----------------------------------
 
 TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -204,6 +323,13 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "search_transactions": search_transactions,
     "list_events": list_events,
     "compare_periods": compare_periods,
+}
+
+# Mutating tools — separate registry so the read-only deterministic fallback and
+# the figure-verification logic never treat them as data-fetch tools.
+ACTION_TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
+    "categorize_merchant": categorize_merchant,
+    "create_category": create_category,
 }
 
 # Human-readable schema injected into the selection prompt. Kept terse on purpose:
@@ -216,3 +342,8 @@ TOOL_SPECS = """\
 - list_events(): list the user's trips/events with totals.
 - compare_periods(period_a_start, period_a_end, period_b_start, period_b_end): compare two date ranges.
 Dates are YYYY-MM-DD. Fields marked ? are optional; omit them if the user gave no range."""
+
+# Action tools shown to the model only when the user asks to CHANGE something.
+ACTION_SPECS = """\
+- categorize_merchant(merchant, category): set the category for EVERY payment whose merchant matches `merchant` (substring) and remember it. `category` must be an existing category name.
+- create_category(name): create a new custom category (e.g. 'Rent'). Use this first if the category the user wants does not exist, then call categorize_merchant."""
