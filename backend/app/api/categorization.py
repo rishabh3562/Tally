@@ -36,7 +36,7 @@ async def list_categories(
     ``PATCH /transactions/{id}/category`` or ``POST /transactions/assign-merchant``.
     """
     try:
-        cats = db.table("categories").select("id,name,icon,user_id").or_(
+        cats = db.table("categories").select("id,name,icon,user_id,parent_id").or_(
             f"user_id.is.null,user_id.eq.{user_id}"
         ).order("name").execute().data or []
         return {"data": cats}
@@ -64,20 +64,37 @@ async def create_category(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Category name is required.",
         )
+    parent_id = (body.parent_id or None)
     try:
-        # Reuse an existing visible category with the same name (system or mine).
-        existing = db.table("categories").select("id,name,icon,user_id").or_(
+        # A parent, if given, must be a category visible to this user.
+        if parent_id:
+            parent = db.table("categories").select("id").or_(
+                f"user_id.is.null,user_id.eq.{user_id}"
+            ).eq("id", parent_id).limit(1).execute().data
+            if not parent:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Parent category not found.",
+                )
+
+        # Reuse an existing visible category with the same name AND same parent
+        # (so 'Pizza' can exist under both Swiggy and Zomato).
+        candidates = db.table("categories").select("id,name,icon,user_id,parent_id").or_(
             f"user_id.is.null,user_id.eq.{user_id}"
         ).ilike("name", name).execute().data or []
-        if existing:
-            return {"data": existing[0], "created": False}
+        dup = next((c for c in candidates if c.get("parent_id") == parent_id), None)
+        if dup:
+            return {"data": dup, "created": False}
 
         row = db.table("categories").insert({
             "name": name,
             "icon": body.icon or "🏷️",
             "user_id": user_id,
+            "parent_id": parent_id,
         }).execute().data
         return {"data": (row or [{}])[0], "created": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)

@@ -35,10 +35,21 @@ export default function CategoryPicker({
     if (autoFocus) inputRef.current?.focus();
   }, [autoFocus]);
 
+  // Resolve a category's parent name so sub-categories read as "Food › Pizza".
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of categories) m.set(c.id, c.name);
+    return m;
+  }, [categories]);
+  const pathLabel = (c: Category) =>
+    c.parent_id && nameById.has(c.parent_id)
+      ? `${nameById.get(c.parent_id)} › ${c.name}`
+      : c.name;
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return categories;
-    return categories.filter((c) => c.name.toLowerCase().includes(q));
+    return categories.filter((c) => pathLabel(c).toLowerCase().includes(q));
   }, [categories, query]);
 
   const exactExists = useMemo(
@@ -119,7 +130,18 @@ export default function CategoryPicker({
               }`}
             >
               <span>{c.icon ?? "🏷️"}</span>
-              <span className="truncate">{c.name}</span>
+              <span className="truncate">
+                {c.parent_id && nameById.has(c.parent_id) ? (
+                  <>
+                    <span className="text-gray-400">
+                      {nameById.get(c.parent_id)} ›{" "}
+                    </span>
+                    {c.name}
+                  </>
+                ) : (
+                  c.name
+                )}
+              </span>
             </button>
           </li>
         ))}

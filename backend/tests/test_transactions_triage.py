@@ -178,7 +178,7 @@ async def test_create_category_creates_user_scoped():
     )
     assert res["created"] is True
     ins = next(l for l in store["log"] if l["op"] == "insert")
-    assert ins["payload"] == {"name": "Rent", "icon": "🏠", "user_id": "u1"}
+    assert ins["payload"] == {"name": "Rent", "icon": "🏠", "user_id": "u1", "parent_id": None}
 
 
 async def test_create_category_reuses_existing_by_name():
@@ -197,3 +197,27 @@ async def test_create_category_rejects_blank():
             CategoryCreate(name="   "), user_id="u1", db=_FakeDB({"data": {}, "log": []}),
         )
     assert ei.value.status_code == 422
+
+
+async def test_create_subcategory_under_valid_parent():
+    store = {
+        "data": {"categories": [{"id": "p1", "name": "Food", "user_id": None, "parent_id": None}]},
+        "insert_rows": [{"id": "s1", "name": "Pizza", "parent_id": "p1", "user_id": "u1"}],
+        "log": [],
+    }
+    res = await categorization.create_category(
+        CategoryCreate(name="Pizza", parent_id="p1"), user_id="u1", db=_FakeDB(store),
+    )
+    assert res["created"] is True
+    ins = next(l for l in store["log"] if l["op"] == "insert")
+    assert ins["payload"]["parent_id"] == "p1"      # linked to the parent
+
+
+async def test_create_subcategory_rejects_unknown_parent():
+    store = {"data": {"categories": []}, "log": []}   # parent p-missing not visible
+    with pytest.raises(HTTPException) as ei:
+        await categorization.create_category(
+            CategoryCreate(name="Pizza", parent_id="p-missing"), user_id="u1", db=_FakeDB(store),
+        )
+    assert ei.value.status_code == 404
+    assert not any(l["op"] == "insert" for l in store["log"])
