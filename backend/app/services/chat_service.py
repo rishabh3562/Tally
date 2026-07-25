@@ -41,6 +41,7 @@ _CATEGORY_KEYWORDS = [
     "food", "grocery", "groceries", "transport", "travel", "shopping",
     "entertainment", "bills", "utilities", "rent", "health", "medical",
     "fuel", "petrol", "education", "subscription", "dining", "restaurant",
+    "transfer", "transfers", "subscriptions",
 ]
 
 _MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
@@ -54,15 +55,20 @@ def classify_intent(question: str) -> IntentType:
     if any(kw in q for kw in ["trip", "vacation", "event", "holiday"]):
         return IntentType.EVENT_QUERY
 
-    if any(kw in q for kw in ["merchant", "store", "vendor", "shop", "where", "who"]):
-        return IntentType.MERCHANT_BREAKDOWN
-
     # Comparison only when the question genuinely names two periods (the
     # discriminating condition) — keyword-guessing hijacked amount-threshold
     # questions like "more than 500 on food" and lost the category filter.
     if any(kw in q for kw in ["compare", "compared", "comparison", "vs", "versus",
                               "difference"]) or parse_two_periods(question) is not None:
         return IntentType.PERIOD_COMPARISON
+
+    # An explicitly named category wins over the merchant heuristic — otherwise
+    # "how much on shopping" matches "shop" and returns merchants, not shopping.
+    if extract_category(question):
+        return IntentType.TOTAL_BY_CATEGORY
+
+    if any(kw in q for kw in ["merchant", "store", "vendor", "shop", "where", "who"]):
+        return IntentType.MERCHANT_BREAKDOWN
 
     if any(kw in q for kw in ["total", "spent", "spend", "spending", "amount", "how much"]):
         return IntentType.TOTAL_BY_CATEGORY

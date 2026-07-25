@@ -297,3 +297,20 @@ def test_sse_pack_is_single_line_events():
     for e in events:
         assert e.endswith("\n\n")
         assert "\n" not in e[:-2]
+
+
+# --- regression: explicit category beats merchant heuristic (found on real data) ---
+
+def test_shopping_routes_to_category_not_merchants():
+    # "shopping" contains "shop" (a merchant keyword) — must still be a category query.
+    assert cs.classify_intent("how much on shopping") == cs.IntentType.TOTAL_BY_CATEGORY
+
+
+def test_transfers_is_a_recognized_category():
+    assert cs.extract_category("how much in transfers") == "transfers"
+    assert cs.classify_intent("how much in transfers") == cs.IntentType.TOTAL_BY_CATEGORY
+
+
+def test_who_and_merchants_still_route_to_merchant_breakdown():
+    assert cs.classify_intent("who did I pay the most") == cs.IntentType.MERCHANT_BREAKDOWN
+    assert cs.classify_intent("what are my top merchants") == cs.IntentType.MERCHANT_BREAKDOWN
