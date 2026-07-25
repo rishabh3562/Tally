@@ -280,7 +280,7 @@ export default function DashboardPage() {
             <div>
               <p className="text-gray-500 text-sm font-medium">Total Spent</p>
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                ₹{totalSpent.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                {inr(totalSpent)}
               </p>
             </div>
             <DollarSign className="w-12 h-12 text-blue-500 opacity-20" />
@@ -306,7 +306,7 @@ export default function DashboardPage() {
               </p>
               {topCategory && (
                 <p className="text-sm text-gray-500 mt-1">
-                  ₹{topCategory.value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                  {inr(topCategory.value)}
                 </p>
               )}
             </div>
@@ -328,7 +328,7 @@ export default function DashboardPage() {
                   cy="50%"
                   labelLine={false}
                   label={({ name, value }) =>
-                    `${name}: ₹${(value as number).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+                    `${name}: ${inr(value as number)}`
                   }
                   outerRadius={80}
                   fill="#8884d8"
@@ -353,7 +353,7 @@ export default function DashboardPage() {
                 <YAxis />
                 <Tooltip
                   formatter={(value) =>
-                    `₹${(value as number).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+                    `${inr(value as number)}`
                   }
                 />
                 <Bar dataKey="amount" fill="#3b82f6" />
@@ -381,7 +381,7 @@ export default function DashboardPage() {
                 </p>
               </div>
               <p className="font-semibold text-gray-900">
-                ₹{tx.amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                {inr(tx.amount)}
               </p>
             </div>
           ))}
