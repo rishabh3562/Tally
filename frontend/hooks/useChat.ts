@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
 export interface Message {
@@ -11,6 +12,7 @@ export interface Message {
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const queryClient = useQueryClient();
 
   const sendMessage = useCallback(async (question: string) => {
     if (!question.trim()) return;
@@ -92,6 +94,14 @@ export const useChat = () => {
         assistantContent += buffer.slice(6);
         applyContent();
       }
+
+      // The chat can now MUTATE data (categorize a merchant, create a category),
+      // so refresh the views that would otherwise show stale numbers. These
+      // queries aren't active on the chat page, so this just marks them stale
+      // and they refetch when the user next opens those pages — cheap.
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['triage'] });
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
     } catch (error) {
       console.error('Chat error:', error);
       const errorMessage: Message = {
@@ -104,7 +114,7 @@ export const useChat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [queryClient]);
 
   return {
     messages,
