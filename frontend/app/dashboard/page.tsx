@@ -32,7 +32,7 @@ function DashboardSkeleton() {
 }
 
 export default function DashboardPage() {
-  const { data: transactionsData, isPending: txPending } = useQuery({
+  const { data: transactionsData, isPending: txPending, isError: txError, refetch } = useQuery({
     queryKey: ["transactions", { limit: 1000 }],
     queryFn: async () => {
       const response = await apiClient.get("/api/transactions", { params: { limit: 1000 } });
@@ -131,6 +131,28 @@ export default function DashboardPage() {
       </Link>
     </div>
   );
+
+  // A failed fetch must not masquerade as "you have nothing" — say what happened
+  // and give a way out.
+  if (txError) {
+    return (
+      <div className="space-y-8">
+        <DashboardHeader />
+        <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center">
+          <p className="text-gray-900 font-medium">Couldn&apos;t load your dashboard.</p>
+          <p className="text-sm text-gray-600 mt-1">
+            The server didn&apos;t respond. Check that the backend is running, then try again.
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="mt-4 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Show the chrome immediately, skeleton the data — never the "you have nothing"
   // empty state while the real data is still loading.
