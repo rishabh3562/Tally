@@ -7,12 +7,31 @@ from uuid import uuid4
 from app.core.database import get_supabase
 from app.core.auth import get_current_user
 from app.core.config import get_settings
-from app.schemas.events import EventCreate, EventOut
+from app.schemas.events import EventCreate, EventUpdate, EventOut
 from app.services import llm_client
 
 logger = logging.getLogger("tally.events")
 
 router = APIRouter(prefix="/api/events", tags=["events"])
+
+
+def _recompute_total(db: Client, user_id: str, event_id: str) -> float:
+    """Recompute an event's total from its current (owned) member transactions."""
+    links = db.table("event_transactions").select(
+        "transaction_id"
+    ).eq("event_id", event_id).execute().data or []
+    tx_ids = [l["transaction_id"] for l in links]
+    total = 0.0
+    if tx_ids:
+        rows = db.table("transactions").select("amount").eq(
+            "user_id", user_id
+        ).in_("id", tx_ids).execute().data or []
+        total = sum(float(r.get("amount") or 0) for r in rows)
+    total = round(total, 2)
+    db.table("events").update({"total_amount": total}).eq(
+        "id", event_id
+    ).eq("user_id", user_id).execute()
+    return total
 
 
 @router.post("", response_model=EventOut)
@@ -136,6 +155,73 @@ async def get_event(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
+        )
+
+
+@router.patch("/{event_id}")
+async def update_event(
+    event_id: str,
+    body: EventUpdate,
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Edit an event: rename/re-describe and add or remove member transactions.
+
+    Adding is idempotent (skips ids already linked or not owned); removing only
+    unlinks (the transaction itself is untouched). Total is recomputed after.
+    """
+    try:
+        ev = db.table("events").select("*").eq(
+            "id", event_id
+        ).eq("user_id", user_id).limit(1).execute().data
+        if not ev:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+            )
+
+        fields = {}
+        if body.name is not None:
+            fields["name"] = body.name
+        if body.description is not None:
+            fields["description"] = body.description
+        if fields:
+            db.table("events").update(fields).eq(
+                "id", event_id
+            ).eq("user_id", user_id).execute()
+
+        # Remove first, then add.
+        if body.remove_transaction_ids:
+            for tx_id in body.remove_transaction_ids:
+                db.table("event_transactions").delete().eq(
+                    "event_id", event_id
+                ).eq("transaction_id", tx_id).execute()
+
+        if body.add_transaction_ids:
+            # Only the caller's own, not-already-linked transactions.
+            owned = {
+                r["id"] for r in (
+                    db.table("transactions").select("id").eq("user_id", user_id)
+                    .in_("id", body.add_transaction_ids).execute().data or []
+                )
+            }
+            existing = {
+                l["transaction_id"] for l in (
+                    db.table("event_transactions").select("transaction_id")
+                    .eq("event_id", event_id).execute().data or []
+                )
+            }
+            for tx_id in owned - existing:
+                db.table("event_transactions").insert({
+                    "event_id": event_id, "transaction_id": tx_id,
+                }).execute()
+
+        total = _recompute_total(db, user_id, event_id)
+        return {"updated": True, "total_amount": total}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 

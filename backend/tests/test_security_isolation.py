@@ -8,7 +8,7 @@ returns user B's rows. If an endpoint ever drops its ``.eq("user_id", ...)``,
 one of these fails.
 """
 
-from app.api import transactions, events, groups
+from app.api import transactions, events, groups, insights
 
 
 class _Result:
@@ -159,3 +159,17 @@ async def test_groups_list_never_leaks_other_user():
     })
     out = await groups.list_groups(user_id="A", db=db)
     assert {g["id"] for g in out} == {"g-a"}   # B's group invisible to A
+
+
+async def test_contributions_never_leaks_other_user():
+    # A has a 3-credit cluster; B has their own. A must only see A's.
+    rows = (
+        [{"id": f"a{i}", "user_id": "A", "date": "2026-05-01", "amount": -62,
+          "raw_merchant": "friend"} for i in range(3)]
+        + [{"id": f"b{i}", "user_id": "B", "date": "2026-05-01", "amount": -80,
+            "raw_merchant": "other"} for i in range(3)]
+    )
+    db = _FakeDB({"transactions": rows})
+    out = await insights.get_contributions(user_id="A", db=db)
+    ids = {i for c in out["data"] for i in c["transaction_ids"]}
+    assert ids == {"a0", "a1", "a2"}   # none of B's transfers appear

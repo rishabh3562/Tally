@@ -13,6 +13,18 @@ class EventCreate(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class EventUpdate(BaseModel):
+    """Edit an event: rename, re-describe, and/or add/remove member transactions.
+
+    A wedding's 'bits and pieces' are found over time, so events must be editable
+    after creation. All fields optional — only what's provided is applied.
+    """
+    name: Optional[str] = None
+    description: Optional[str] = None
+    add_transaction_ids: Optional[list[str]] = None
+    remove_transaction_ids: Optional[list[str]] = None
+
+
 class EventOut(BaseModel):
     """Schema for event response."""
     id: str

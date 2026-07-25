@@ -3,7 +3,7 @@
 import pytest
 
 from app.api import events
-from app.schemas.events import EventCreate
+from app.schemas.events import EventCreate, EventUpdate
 
 
 class _R:
@@ -43,31 +43,47 @@ class _Q:
         self._op, self._payload = "insert", payload
         return self
 
+    def update(self, payload):
+        self._op, self._payload = "update", payload
+        return self
+
     def delete(self):
         self._op = "delete"
         return self
+
+    def _matches(self, r):
+        for c, v in self.eqs.items():
+            if r.get(c) != v:
+                return False
+        if self._in and r.get(self._in[0]) not in self._in[1]:
+            return False
+        return True
 
     def execute(self):
         self.store["log"].append({
             "table": self.table, "op": self._op, "payload": self._payload,
             "eqs": dict(self.eqs), "in": self._in,
         })
+        table_rows = self.store["data"].setdefault(self.table, [])
         if self._op == "insert":
             row = dict(self._payload) if isinstance(self._payload, dict) else self._payload
             if isinstance(row, dict):
                 row.setdefault("created_at", "2026-07-25T00:00:00Z")
                 row.setdefault("currency", "INR")
+                table_rows.append(row)
                 return _R([row])
             return _R(row)
+        if self._op == "update":
+            hit = [r for r in table_rows if self._matches(r)]
+            for r in hit:
+                r.update(self._payload)
+            return _R(hit)
         if self._op == "delete":
-            return _R([])
-        rows = self.store["data"].get(self.table, [])
-        for c, v in self.eqs.items():
-            rows = [r for r in rows if r.get(c) == v]
-        if self._in:
-            c, vals = self._in
-            rows = [r for r in rows if r.get(c) in vals]
-        return _R(list(rows))
+            keep = [r for r in table_rows if not self._matches(r)]
+            removed = [r for r in table_rows if self._matches(r)]
+            self.store["data"][self.table] = keep
+            return _R(removed)
+        return _R([r for r in table_rows if self._matches(r)])
 
 
 class _DB:
@@ -96,6 +112,56 @@ async def test_create_event_scopes_transactions_and_computes_total(monkeypatch):
              if l["table"] == "event_transactions" and l["op"] == "insert"]
     assert len(links) == 1                    # only the owned transaction linked
     assert links[0]["payload"]["transaction_id"] == "t1"
+
+
+async def test_update_event_adds_owned_transactions_and_recomputes_total():
+    store = {"data": {
+        "events": [{"id": "e1", "user_id": "A", "name": "Wedding", "total_amount": 100}],
+        "event_transactions": [{"event_id": "e1", "transaction_id": "t1"}],
+        "transactions": [
+            {"id": "t1", "user_id": "A", "amount": 100},
+            {"id": "t2", "user_id": "A", "amount": 10000},   # flowers, found later
+            {"id": "t3", "user_id": "B", "amount": 500},      # someone else's — ignored
+        ],
+    }, "log": []}
+    out = await events.update_event(
+        "e1",
+        EventUpdate(add_transaction_ids=["t2", "t3"]),
+        user_id="A", db=_DB(store),
+    )
+    assert out["total_amount"] == 10100        # t1 + t2, NOT B's t3
+    linked = {l["transaction_id"] for l in store["data"]["event_transactions"]}
+    assert linked == {"t1", "t2"}
+
+
+async def test_update_event_removes_member_and_recomputes():
+    store = {"data": {
+        "events": [{"id": "e1", "user_id": "A", "name": "Wedding", "total_amount": 10100}],
+        "event_transactions": [
+            {"event_id": "e1", "transaction_id": "t1"},
+            {"event_id": "e1", "transaction_id": "t2"},
+        ],
+        "transactions": [
+            {"id": "t1", "user_id": "A", "amount": 100},
+            {"id": "t2", "user_id": "A", "amount": 10000},
+        ],
+    }, "log": []}
+    out = await events.update_event(
+        "e1", EventUpdate(remove_transaction_ids=["t2"]), user_id="A", db=_DB(store),
+    )
+    assert out["total_amount"] == 100
+    linked = {l["transaction_id"] for l in store["data"]["event_transactions"]}
+    assert linked == {"t1"}
+
+
+async def test_update_event_404_for_other_users_event():
+    import pytest as _pytest
+    store = {"data": {"events": [{"id": "e1", "user_id": "A", "name": "X"}]}, "log": []}
+    with _pytest.raises(events.HTTPException) as ei:
+        await events.update_event(
+            "e1", EventUpdate(name="hijack"), user_id="B", db=_DB(store),
+        )
+    assert ei.value.status_code == 404
 
 
 async def test_summary_empty_transactions():
