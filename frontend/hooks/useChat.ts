@@ -151,10 +151,23 @@ export const useChat = () => {
     }
   }, [queryClient]);
 
+  // Start a fresh conversation: delete persisted history (scoped server-side to
+  // the caller) and clear the view. Best-effort — clear the view even if the
+  // delete fails, so the user isn't stuck staring at old messages.
+  const clearConversation = useCallback(async () => {
+    try {
+      await apiClient.delete('/api/chat/messages');
+    } catch {
+      // ignore; still clear locally
+    }
+    setMessages([]);
+  }, []);
+
   return {
     messages,
     isLoading,
     historyLoading,
     sendMessage,
+    clearConversation,
   };
 };

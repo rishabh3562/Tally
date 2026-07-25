@@ -19,7 +19,7 @@ const DO_PROMPTS = [
 ];
 
 export default function ChatPage() {
-  const { messages, isLoading, historyLoading, sendMessage } = useChat();
+  const { messages, isLoading, historyLoading, sendMessage, clearConversation } = useChat();
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,12 +59,28 @@ export default function ChatPage() {
             categories, and I&apos;ll do it.
           </p>
         </div>
-        <Link
-          href="/chat/traces"
-          className="text-sm text-gray-500 hover:text-gray-700 font-medium whitespace-nowrap mt-2"
-        >
-          Traces →
-        </Link>
+        <div className="flex items-center gap-4 mt-2 whitespace-nowrap">
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Clear this conversation? Your chat history will be deleted.")) {
+                  clearConversation();
+                }
+              }}
+              disabled={isLoading}
+              className="text-sm text-gray-500 hover:text-gray-700 font-medium disabled:opacity-50"
+            >
+              New chat
+            </button>
+          )}
+          <Link
+            href="/chat/traces"
+            className="text-sm text-gray-500 hover:text-gray-700 font-medium"
+          >
+            Traces →
+          </Link>
+        </div>
       </div>
 
       {/* Messages */}

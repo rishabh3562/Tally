@@ -62,6 +62,24 @@ async def list_chat_messages(
         )
 
 
+@router.delete("/chat/messages")
+async def clear_chat_messages(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Delete the caller's chat history — 'New chat'. Scoped to token user_id:
+    service-role bypasses RLS, so the ``.eq`` is the only thing keeping this from
+    wiping another user's messages."""
+    try:
+        db.table("chat_messages").delete().eq("user_id", user_id).execute()
+        return {"status": "cleared"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
 @router.get("/chat/traces")
 async def list_chat_traces(
     limit: int = 25,
