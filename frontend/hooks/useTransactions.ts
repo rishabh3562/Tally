@@ -6,6 +6,7 @@ interface TransactionFilters {
   start_date?: string;
   end_date?: string;
   category_id?: string;
+  merchant?: string;
   page?: number;
   limit?: number;
 }

@@ -259,16 +259,30 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(1);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<string | null>(null);
   const [clubError, setClubError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
+  // Debounce the merchant search so we don't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const { transactions, total, isLoading, error } = useTransactions({
     page,
     start_date: startDate || undefined,
     end_date: endDate || undefined,
+    merchant: debouncedSearch || undefined,
+    category_id: categoryFilter || undefined,
   });
   const { categories } = useCategories();
 
@@ -282,10 +296,10 @@ export default function TransactionsPage() {
     return () => clearTimeout(t);
   }, [banner]);
 
-  // Selecting spans the current page only; drop selection when the page changes.
+  // Selecting spans the current page only; drop selection when the view changes.
   useEffect(() => {
     setSelected(new Set());
-  }, [page, startDate, endDate]);
+  }, [page, startDate, endDate, debouncedSearch, categoryFilter]);
 
   const allOnPageSelected =
     rows.length > 0 && rows.every((tx) => selected.has(tx.id));
@@ -368,7 +382,42 @@ export default function TransactionsPage() {
       {bannerNode}
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
+      <div className="bg-white rounded-lg shadow p-6 mb-6 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Search merchant
+            </label>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="e.g. Amazon, Swiggy, a person's name…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Category
+            </label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setPage(1);
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+            >
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.icon ? `${c.icon} ` : ""}
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -381,7 +430,7 @@ export default function TransactionsPage() {
                 setStartDate(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />
           </div>
           <div>
@@ -395,7 +444,7 @@ export default function TransactionsPage() {
                 setEndDate(e.target.value);
                 setPage(1);
               }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />
           </div>
           <div className="flex items-end">
@@ -403,6 +452,8 @@ export default function TransactionsPage() {
               onClick={() => {
                 setStartDate("");
                 setEndDate("");
+                setSearch("");
+                setCategoryFilter("");
                 setPage(1);
               }}
               className="w-full px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition"
