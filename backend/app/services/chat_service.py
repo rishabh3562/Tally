@@ -57,9 +57,11 @@ def classify_intent(question: str) -> IntentType:
     if any(kw in q for kw in ["merchant", "store", "vendor", "shop", "where", "who"]):
         return IntentType.MERCHANT_BREAKDOWN
 
+    # Comparison only when the question genuinely names two periods (the
+    # discriminating condition) — keyword-guessing hijacked amount-threshold
+    # questions like "more than 500 on food" and lost the category filter.
     if any(kw in q for kw in ["compare", "compared", "comparison", "vs", "versus",
-                              "difference", "more than", "less than", "than last",
-                              "than the"]):
+                              "difference"]) or parse_two_periods(question) is not None:
         return IntentType.PERIOD_COMPARISON
 
     if any(kw in q for kw in ["total", "spent", "spend", "spending", "amount", "how much"]):
@@ -249,10 +251,14 @@ def _answer_comparison(db: Client, user_id: str, question: str) -> str:
     """Compare spending between two periods named in the question."""
     parsed = parse_two_periods(question)
     if not parsed:
-        # Couldn't resolve two periods — degrade to a single-period summary.
+        # Couldn't resolve two periods — degrade to the normal, CATEGORY-AWARE
+        # single-period answer (not a bare summary, which would drop a named
+        # category like "food").
         start, end = parse_period(question)
-        return _answer_open_ended(_fetch_transactions(db, user_id, start, end),
-                                  _period_label(start, end))
+        return _answer_total_by_category(
+            _fetch_transactions(db, user_id, start, end), question,
+            _period_label(start, end),
+        )
     (a_start, a_end), (b_start, b_end) = parsed
     a_spend = sum(float(t["amount"]) for t in _spend_only(
         _fetch_transactions(db, user_id, a_start, a_end)))

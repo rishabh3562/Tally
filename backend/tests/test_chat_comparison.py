@@ -97,3 +97,16 @@ def test_comparison_classified_as_comparison():
     assert cs.classify_intent("did I spend more this month than last month") == (
         cs.IntentType.PERIOD_COMPARISON
     )
+
+
+def test_amount_threshold_is_not_hijacked_as_comparison():
+    # "more than 500" is an amount, not two periods — must stay category-aware.
+    assert cs.classify_intent("did I spend more than 500 on food") == (
+        cs.IntentType.TOTAL_BY_CATEGORY
+    )
+    db = _DateDB([
+        {"amount": 300, "date": "2026-07-10", "raw_merchant": "Zomato",
+         "categories": {"name": "Food"}},
+    ])
+    out = cs.answer_question("did I spend more than 500 on food", "u1", db)
+    assert "food" in out.lower()      # the category filter survived
