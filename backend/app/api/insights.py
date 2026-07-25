@@ -60,7 +60,23 @@ def _fetch_transactions(
     return q.execute().data or []
 
 
-def _compute_summary(txns: list[dict]) -> dict[str, Any]:
+def _root_name_map(cats: list[dict]) -> dict[str, str]:
+    """Map each category NAME to its top-level ancestor name, so sub-category
+    spend (Food › Pizza) rolls up into the parent slice. Names are globally
+    unique, so keying by name is safe. Cycle-guarded."""
+    by_id = {c["id"]: c for c in cats}
+    out: dict[str, str] = {}
+    for c in cats:
+        cur = c
+        seen: set = set()
+        while cur.get("parent_id") in by_id and cur["id"] not in seen:
+            seen.add(cur["id"])
+            cur = by_id[cur["parent_id"]]
+        out[c["name"]] = cur["name"]
+    return out
+
+
+def _compute_summary(txns: list[dict], root_of: dict[str, str] | None = None) -> dict[str, Any]:
     total_spent = 0.0
     total_received = 0.0
     cat_totals: dict[str, dict[str, float]] = defaultdict(lambda: {"total": 0.0, "count": 0})
@@ -74,6 +90,8 @@ def _compute_summary(txns: list[dict]) -> dict[str, Any]:
         if isinstance(cat_obj, list):  # tolerate list-shaped embed
             cat_obj = cat_obj[0] if cat_obj else None
         cat_name = cat_obj.get("name") if isinstance(cat_obj, dict) else "Uncategorized"
+        if root_of:  # roll a sub-category up into its top-level parent
+            cat_name = root_of.get(cat_name, cat_name)
         merchant = t.get("raw_merchant") or "Unknown"
 
         if amount >= 0:  # spending (app convention: positive = money out)
@@ -125,7 +143,10 @@ async def insights_summary(
     """Deterministic spending aggregates for the given date range."""
     try:
         txns = _fetch_transactions(db, user_id, start, end)
-        return _compute_summary(txns)
+        cats = db.table("categories").select("id,name,parent_id").or_(
+            f"user_id.is.null,user_id.eq.{user_id}"
+        ).execute().data or []
+        return _compute_summary(txns, _root_name_map(cats))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
