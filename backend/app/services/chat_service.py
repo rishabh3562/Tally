@@ -330,6 +330,60 @@ def _record_trace(
         logger.warning("failed to record chat trace: %s", e)
 
 
+# Deterministic action parsing — so "categorize my amazon as shopping" WORKS even
+# with no LLM configured (the action executors are deterministic; only intent
+# parsing needed the model). Keeps the Palantir "tell it and it does it" promise
+# on the keyless path.
+_CATEGORIZE_RE = re.compile(
+    r"\b(?:put|move|categori[sz]e|label|classif|mark|tag|file)\w*\s+"
+    r"(?:all\s+)?(?:my\s+|the\s+)?(?P<merchant>.+?)\s+"
+    r"(?:as|under|in|into|to)\s+(?P<category>.+?)[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_CREATE_CAT_RE = re.compile(
+    r"\bcreate\s+(?:a\s+)?(?:new\s+)?categor(?:y|ies)\s+"
+    r"(?:called\s+|named\s+)?(?P<name>.+?)[.!?]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def try_action(question: str, user_id: str, db: Client) -> Optional[str]:
+    """If the question is a data-change request, execute it deterministically and
+    return a server-composed confirmation. Returns None if it isn't an action.
+
+    Reuses the same executors and confirmation text as the LLM agent, so keyless
+    and AI paths behave identically. Category names are matched against the user's
+    real categories to avoid acting on a misread token.
+    """
+    from app.services import chat_tools
+    from app.services.chat_agent import _action_confirmation
+
+    q = question.strip()
+
+    m = _CREATE_CAT_RE.search(q)
+    if m:
+        name = m.group("name").strip().strip("\"'")
+        res = chat_tools.create_category(db, user_id, name=name)
+        return _action_confirmation([{"tool": "create_category", "result": res}])
+
+    m = _CATEGORIZE_RE.search(q)
+    if m:
+        merchant = m.group("merchant").strip().strip("\"'")
+        category = m.group("category").strip().strip("\"'")
+        # Only treat as an action when the stated category actually exists — else
+        # it's probably a normal question, not a command.
+        cats = chat_tools._visible_categories(db, user_id)
+        match = next((c for c in cats if c["name"].lower() == category.lower()), None)
+        if not match:
+            return None
+        res = chat_tools.categorize_merchant(
+            db, user_id, merchant=merchant, category=match["name"]
+        )
+        return _action_confirmation([{"tool": "categorize_merchant", "result": res}])
+
+    return None
+
+
 async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     """Answer a question: try the agentic path, fall back to the deterministic one.
 
@@ -348,16 +402,25 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     source = "agent"
     error: str | None = None
     started = time.monotonic()
+
+    def _fallback() -> str:
+        # Actions work deterministically even with no LLM; only then fall back to
+        # the keyword Q&A. Prevents "categorize my amazon" returning a summary.
+        act = try_action(question, user_id, db)
+        if act is not None:
+            return act
+        return answer_question(question, user_id, db)
+
     try:
         answer = await chat_agent.run_agent(question, user_id, db, trace=steps)
     except chat_agent.AgentUnavailable as e:
         logger.info("chat agent unavailable, using deterministic path: %s", e)
         source, error = "deterministic", str(e)
-        answer = await rephrase(question, answer_question(question, user_id, db))
+        answer = await rephrase(question, _fallback())
     except Exception as e:
         logger.warning("chat agent errored, using deterministic path: %s", e)
         source, error = "error-fallback", str(e)
-        answer = await rephrase(question, answer_question(question, user_id, db))
+        answer = await rephrase(question, _fallback())
 
     _record_trace(
         db, user_id, question, steps, answer, source, error,
