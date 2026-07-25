@@ -233,6 +233,28 @@ export interface CategorySuggestion {
   source: 'ai' | 'rule';
 }
 
+// Triage: a merchant still needing a category (GET /api/transactions/triage)
+export interface TriageSuggestion {
+  category: string;
+  category_id: string;
+  confidence: number;
+}
+
+export interface TriageMerchant {
+  raw_merchant: string;
+  count: number;
+  total: number; // absolute ₹ magnitude, for ranking
+  net: number; // signed: positive = spent, negative = received
+  sample_memo: string | null;
+  suggestion: TriageSuggestion | null;
+}
+
+export interface TriageResponse {
+  data: TriageMerchant[];
+  merchants: number;
+  total_amount: number;
+}
+
 // Bulk AI recategorization (POST /api/recategorize)
 export interface RecategorizeResponse {
   status: string;

@@ -1,13 +1,16 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '@/lib/api';
 import { Category } from '@/types';
 
 /**
- * Fetch the selectable (system) categories once and expose an id -> name map.
- * Categories change rarely, so this is cached aggressively.
+ * Fetch the selectable categories (system + the user's own) once and expose an
+ * id -> name map plus a "create custom category" mutation. Categories change
+ * rarely, so reads are cached aggressively.
  */
 export const useCategories = () => {
+  const queryClient = useQueryClient();
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['categories'],
     queryFn: async () => {
@@ -24,5 +27,18 @@ export const useCategories = () => {
     return m;
   }, [categories]);
 
-  return { categories, nameById, isLoading, error };
+  // Create a user-scoped custom category (e.g. "Rent", "Loan given"). The
+  // backend is idempotent by name, so calling with an existing name just
+  // returns it. Resolves to the created/reused Category.
+  const createCategory = useMutation({
+    mutationFn: async ({ name, icon }: { name: string; icon?: string }) => {
+      const res = await apiClient.post('/api/categories', { name, icon });
+      return res.data.data as Category;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+    },
+  });
+
+  return { categories, nameById, isLoading, error, createCategory };
 };
