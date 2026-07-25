@@ -27,31 +27,36 @@ async def create_event(
     try:
         event_id = str(uuid4())
 
-        # Get transactions for the event
-        tx_response = db.table("transactions").select(
-            "id,date,amount,raw_merchant,category_id"
-        ).in_("id", event.transaction_ids).execute()
-
-        transactions = tx_response.data if tx_response.data else []
-
-        # Generate AI summary
-        summary = await _generate_event_summary(
-            event.name,
-            transactions,
-            settings,
+        # Only the caller's OWN transactions (never trust the id list blindly —
+        # service-role bypasses RLS, so scope by user_id).
+        transactions = (
+            db.table("transactions")
+            .select("id,date,amount,raw_merchant,category_id")
+            .eq("user_id", user_id)
+            .in_("id", event.transaction_ids)
+            .execute().data
+            or []
         )
+        owned_ids = [t["id"] for t in transactions]
+        total_amount = round(sum(float(t.get("amount") or 0) for t in transactions), 2)
 
-        # Create event
-        db.table("events").insert({
-            "id": event_id,
-            "user_id": user_id,
-            "name": event.name,
-            "metadata": event.metadata,
-            "summary": summary,
-        }).execute()
+        summary = await _generate_event_summary(event.name, transactions, settings)
 
-        # Add transactions to event
-        for tx_id in event.transaction_ids:
+        inserted = (
+            db.table("events").insert({
+                "id": event_id,
+                "user_id": user_id,
+                "name": event.name,
+                "description": event.description,
+                "metadata": event.metadata,
+                "summary": summary,
+                "total_amount": total_amount,
+            }).execute().data
+        )
+        row = (inserted or [{}])[0]
+
+        # Link only the owned transactions.
+        for tx_id in owned_ids:
             db.table("event_transactions").insert({
                 "event_id": event_id,
                 "transaction_id": tx_id,
@@ -61,9 +66,12 @@ async def create_event(
             id=event_id,
             user_id=user_id,
             name=event.name,
+            description=event.description,
             metadata=event.metadata,
             summary=summary,
-            created_at=None,
+            total_amount=total_amount,
+            currency=row.get("currency", "INR"),
+            created_at=row.get("created_at"),
         )
 
     except Exception as e:
@@ -92,25 +100,65 @@ async def list_events(
         )
 
 
-@router.get("/{event_id}", response_model=EventOut)
+@router.get("/{event_id}")
 async def get_event(
     event_id: str,
     user_id: str = Depends(get_current_user),
     db: Client = Depends(get_supabase),
 ):
-    """Get event details."""
+    """Get an event with its member transactions (which keep their own category)."""
     try:
-        response = db.table("events").select("*").eq(
+        ev = db.table("events").select("*").eq(
             "id", event_id
-        ).eq("user_id", user_id).limit(1).execute()
-
-        if not response.data:
+        ).eq("user_id", user_id).limit(1).execute().data
+        if not ev:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Event not found",
+                status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
             )
 
-        return response.data[0]
+        links = db.table("event_transactions").select(
+            "transaction_id"
+        ).eq("event_id", event_id).execute().data or []
+        tx_ids = [l["transaction_id"] for l in links]
+
+        txns = []
+        if tx_ids:
+            txns = db.table("transactions").select(
+                "id,date,amount,raw_merchant,memo,category_id,categories(name)"
+            ).eq("user_id", user_id).in_("id", tx_ids).order(
+                "date", desc=True
+            ).execute().data or []
+
+        return {**ev[0], "transactions": txns}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
+@router.delete("/{event_id}")
+async def delete_event(
+    event_id: str,
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Delete an event (its transactions are untouched — only the grouping goes)."""
+    try:
+        ev = db.table("events").select("id").eq(
+            "id", event_id
+        ).eq("user_id", user_id).limit(1).execute().data
+        if not ev:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Event not found"
+            )
+        db.table("event_transactions").delete().eq("event_id", event_id).execute()
+        db.table("events").delete().eq("id", event_id).eq("user_id", user_id).execute()
+        return {"deleted": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
