@@ -59,3 +59,25 @@ def test_plain_question_is_not_an_action():
     store = _cat_store()
     assert chat_service.try_action("where did most of my money go", "u1", _FakeDB(store)) is None
     assert chat_service.try_action("how much did I spend last month", "u1", _FakeDB(store)) is None
+
+
+def test_other_is_never_an_assignable_target():
+    # "Other" is the bucket we empty — a chat command must not pin rows to it.
+    store = _store(
+        categories=[{"id": "cat-other", "name": "Other"}],
+        transactions=[{"raw_merchant": "AmazonIndia"}],
+    )
+    out = chat_service.try_action("put amazon under Other", "u1", _FakeDB(store))
+    assert out is None
+    assert not any(l["op"] == "update" for l in store["log"])
+
+
+def test_action_is_recorded_in_trace():
+    store = _cat_store()
+    store["update_rows"] = [{"id": "t1"}, {"id": "t2"}]
+    trace: list = []
+    out = chat_service.try_action("categorize amazon as Shopping", "u1", _FakeDB(store), trace=trace)
+    assert out is not None
+    assert len(trace) == 1
+    assert trace[0]["tool"] == "categorize_merchant"
+    assert "action" in trace[0]["result"]        # so _record_trace flags action_taken

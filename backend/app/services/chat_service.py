@@ -347,39 +347,56 @@ _CREATE_CAT_RE = re.compile(
 )
 
 
-def try_action(question: str, user_id: str, db: Client) -> Optional[str]:
+def try_action(
+    question: str, user_id: str, db: Client,
+    trace: Optional[list[dict[str, Any]]] = None,
+) -> Optional[str]:
     """If the question is a data-change request, execute it deterministically and
     return a server-composed confirmation. Returns None if it isn't an action.
 
     Reuses the same executors and confirmation text as the LLM agent, so keyless
     and AI paths behave identically. Category names are matched against the user's
-    real categories to avoid acting on a misread token.
+    real categories to avoid acting on a misread token. When ``trace`` is given,
+    the executed step is appended (so ``/chat/traces`` records the mutation).
     """
     from app.services import chat_tools
     from app.services.chat_agent import _action_confirmation
 
     q = question.strip()
 
+    def _run(tool: str, args: dict, result: dict) -> str:
+        if trace is not None:
+            trace.append({"tool": tool, "args": args, "result": result})
+        return _action_confirmation([{"tool": tool, "result": result}])
+
     m = _CREATE_CAT_RE.search(q)
     if m:
         name = m.group("name").strip().strip("\"'")
         res = chat_tools.create_category(db, user_id, name=name)
-        return _action_confirmation([{"tool": "create_category", "result": res}])
+        return _run("create_category", {"name": name}, res)
 
     m = _CATEGORIZE_RE.search(q)
     if m:
         merchant = m.group("merchant").strip().strip("\"'")
         category = m.group("category").strip().strip("\"'")
-        # Only treat as an action when the stated category actually exists — else
-        # it's probably a normal question, not a command.
+        # Only treat as an action when the stated category actually exists AND is
+        # assignable — else it's probably a normal question, not a command.
+        # "Other" is the bucket we empty, never a target (would poison learning).
         cats = chat_tools._visible_categories(db, user_id)
-        match = next((c for c in cats if c["name"].lower() == category.lower()), None)
+        match = next(
+            (c for c in cats
+             if c["name"].lower() == category.lower() and c["name"] != "Other"),
+            None,
+        )
         if not match:
             return None
         res = chat_tools.categorize_merchant(
             db, user_id, merchant=merchant, category=match["name"]
         )
-        return _action_confirmation([{"tool": "categorize_merchant", "result": res}])
+        return _run(
+            "categorize_merchant",
+            {"merchant": merchant, "category": match["name"]}, res,
+        )
 
     return None
 
@@ -403,24 +420,26 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     error: str | None = None
     started = time.monotonic()
 
-    def _fallback() -> str:
-        # Actions work deterministically even with no LLM; only then fall back to
-        # the keyword Q&A. Prevents "categorize my amazon" returning a summary.
-        act = try_action(question, user_id, db)
+    async def _fallback() -> str:
+        # Actions work deterministically even with no LLM. Their confirmation is
+        # server-composed from the real result, so it's returned VERBATIM (never
+        # through rephrase, whose figure-guard is vacuous for count-only text and
+        # could let the model restate the count). Records the step for the trace.
+        act = try_action(question, user_id, db, trace=steps)
         if act is not None:
             return act
-        return answer_question(question, user_id, db)
+        return await rephrase(question, answer_question(question, user_id, db))
 
     try:
         answer = await chat_agent.run_agent(question, user_id, db, trace=steps)
     except chat_agent.AgentUnavailable as e:
         logger.info("chat agent unavailable, using deterministic path: %s", e)
         source, error = "deterministic", str(e)
-        answer = await rephrase(question, _fallback())
+        answer = await _fallback()
     except Exception as e:
         logger.warning("chat agent errored, using deterministic path: %s", e)
         source, error = "error-fallback", str(e)
-        answer = await rephrase(question, _fallback())
+        answer = await _fallback()
 
     _record_trace(
         db, user_id, question, steps, answer, source, error,
