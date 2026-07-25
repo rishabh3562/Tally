@@ -434,6 +434,27 @@ def delete_category(
     return {"action": "delete_category", "name": owned[0]["name"]}
 
 
+def get_recurring_payments(
+    db: Client, user_id: str, *, question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Read tool: merchants charged on a regular monthly cadence (subscriptions,
+    rent, memberships) with their estimated monthly cost."""
+    from app.services.recurring import detect_recurring
+
+    rows = (
+        db.table("transactions").select("amount,date,raw_merchant")
+        .eq("user_id", user_id).eq("is_transfer", False)
+        .execute().data
+        or []
+    )
+    items = detect_recurring(rows)
+    return {
+        "recurring": items,
+        "count": len(items),
+        "monthly_total": round(sum(i["monthly"] for i in items), 2),
+    }
+
+
 # --- registry & schema (fed to the model) -----------------------------------
 
 TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -444,6 +465,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "search_transactions": search_transactions,
     "list_events": list_events,
     "compare_periods": compare_periods,
+    "get_recurring_payments": get_recurring_payments,
 }
 
 # Mutating tools — separate registry so the read-only deterministic fallback and
@@ -466,6 +488,7 @@ TOOL_SPECS = """\
 - search_transactions(keyword, start?, end?, limit?): find transactions whose merchant matches a keyword.
 - list_events(): list the user's trips/events with totals.
 - compare_periods(period_a_start, period_a_end, period_b_start, period_b_end): compare two date ranges.
+- get_recurring_payments(): merchants charged on a regular monthly cadence (subscriptions, rent, memberships) + monthly total.
 Dates are YYYY-MM-DD. Fields marked ? are optional; omit them if the user gave no range."""
 
 # Action tools shown to the model only when the user asks to CHANGE something.

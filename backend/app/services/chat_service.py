@@ -335,6 +335,40 @@ def _answer_received(txns: list[dict], period: str) -> str:
     return f"You received {_rupees(total)} across {n} transactions ({period})."
 
 
+def _is_recurring_query(question: str) -> bool:
+    """A request to LIST recurring/subscription payments (not 'how much on
+    subscriptions', which is a category-spend question)."""
+    q = question.lower()
+    if "recurring" in q or "regular payment" in q:
+        return True
+    if "subscription" in q:
+        return not any(w in q for w in ["how much", "how many", "total"])
+    return False
+
+
+def _answer_recurring(db: Client, user_id: str) -> str:
+    """List the merchants charged on a regular monthly cadence (subscriptions,
+    rent, memberships) across the user's whole history."""
+    from app.services.recurring import detect_recurring
+
+    txns = _fetch_transactions(db, user_id, None, None)  # whole history
+    items = detect_recurring(txns)
+    if not items:
+        return (
+            "I couldn't spot any clearly recurring payments yet — I look for the "
+            "same merchant charged at a regular monthly cadence for a similar amount."
+        )
+    parts = [
+        f"{i['merchant']} (~{_rupees(i['monthly'])}/mo, {i['count']} charges)"
+        for i in items[:8]
+    ]
+    total = sum(i["monthly"] for i in items)
+    return (
+        f"You have {len(items)} recurring payment{'s' if len(items) != 1 else ''} "
+        f"(~{_rupees(total)}/mo): " + ", ".join(parts) + "."
+    )
+
+
 def _answer_open_ended(txns: list[dict], period: str) -> str:
     total_spent = sum(float(t["amount"]) for t in _spend_only(txns))
     total_received = sum(-float(t["amount"]) for t in txns if float(t.get("amount") or 0) < 0)
@@ -416,6 +450,9 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
 
     if intent == IntentType.EVENT_QUERY:
         return _answer_events(db, user_id)
+
+    if _is_recurring_query(question):
+        return _answer_recurring(db, user_id)
 
     if intent == IntentType.PERIOD_COMPARISON:
         return _answer_comparison(db, user_id, question)
