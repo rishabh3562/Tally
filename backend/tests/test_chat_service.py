@@ -336,3 +336,10 @@ def test_answer_received_totals_credits():
     out = cs._answer_received(txns, "all time")
     assert "Rs 50" in out
     assert "2 transactions" in out
+
+
+def test_biggest_expense_lists_top_transactions():
+    db = _mk_db(transactions=[_txn(100, merchant="A"), _txn(900, merchant="B"), _txn(500, merchant="C")])
+    out = cs.answer_question("what was my biggest expense", "u", db)
+    assert "Rs 900" in out
+    assert out.index("Rs 900") < out.index("Rs 500")   # sorted, biggest first

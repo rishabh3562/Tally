@@ -285,6 +285,25 @@ def _try_merchant_spend(
     return f"You spent {_rupees(total)} at {who} across {len(spend)} transactions."
 
 
+def _is_biggest_query(question: str) -> bool:
+    q = question.lower()
+    return any(w in q for w in ["biggest", "largest", "highest", "most expensive",
+                                "top transaction", "biggest expense", "biggest purchase"])
+
+
+def _answer_biggest(txns: list[dict], period: str) -> str:
+    spend = sorted(_spend_only(txns), key=lambda t: float(t["amount"]), reverse=True)
+    if not spend:
+        return f"I found no spending for {period}."
+    top = spend[:3]
+    parts = [
+        f"{t.get('raw_merchant') or 'Unknown'} ({_rupees(float(t['amount']))}"
+        f"{', ' + str(t['date']) if t.get('date') else ''})"
+        for t in top
+    ]
+    return f"Your biggest expenses for {period}: " + ", ".join(parts) + "."
+
+
 def _is_received_query(question: str) -> bool:
     q = question.lower()
     return any(w in q for w in ["get back", "got back", "received", "refund",
@@ -387,6 +406,9 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
     start, end = parse_period(question)
     period = _period_label(start, end)
     txns = _fetch_transactions(db, user_id, start, end)
+
+    if _is_biggest_query(question):
+        return _answer_biggest(txns, period)
 
     if intent == IntentType.MERCHANT_BREAKDOWN:
         return _answer_merchant_breakdown(txns, period)
