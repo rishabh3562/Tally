@@ -300,6 +300,14 @@ export default function TransactionsPage() {
 
   const rows = transactions as TransactionListItem[];
   const totalPages = Math.ceil(total / itemsPerPage);
+  const hasFilters = Boolean(startDate || endDate || search || categoryFilter);
+  const clearFilters = () => {
+    setStartDate("");
+    setEndDate("");
+    setSearch("");
+    setCategoryFilter("");
+    setPage(1);
+  };
 
   // Auto-dismiss the success banner.
   useEffect(() => {
@@ -625,13 +633,7 @@ export default function TransactionsPage() {
           </div>
           <div className="flex items-end">
             <button
-              onClick={() => {
-                setStartDate("");
-                setEndDate("");
-                setSearch("");
-                setCategoryFilter("");
-                setPage(1);
-              }}
+              onClick={clearFilters}
               className="w-full px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition"
             >
               Clear Filters
@@ -722,8 +724,28 @@ export default function TransactionsPage() {
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                  No transactions found
+                <td colSpan={6} className="px-6 py-10 text-center">
+                  {hasFilters ? (
+                    <>
+                      <p className="text-gray-900 font-medium">No transactions match these filters.</p>
+                      <button
+                        onClick={clearFilters}
+                        className="mt-3 text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Clear filters
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-gray-900 font-medium">No transactions yet.</p>
+                      <Link
+                        href="/upload"
+                        className="mt-3 inline-block text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Upload a statement to get started
+                      </Link>
+                    </>
+                  )}
                 </td>
               </tr>
             ) : (
