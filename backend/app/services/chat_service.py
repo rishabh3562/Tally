@@ -535,6 +535,18 @@ _RENAME_CAT_RE = re.compile(
     r"(?P<old>.+?)\s+(?:categor(?:y|ies)\s+)?to\s+(?P<new>.+?)[.!?]*\s*$",
     re.IGNORECASE,
 )
+# "set the icon for Rent to 🏠", "change Rent's emoji to 🏠", "set Rent icon to 🏠".
+# Gated on the icon/emoji keyword so it can't swallow other commands.
+_SET_ICON_RE = re.compile(
+    r"\b(?:set|change|update)\s+(?:the\s+)?(?:icon|emoji)\s+(?:for\s+|of\s+|on\s+)?"
+    r"(?P<name>.+?)\s+to\s+(?P<icon>\S+)[.!?]*\s*$",
+    re.IGNORECASE,
+)
+_SET_ICON_POSSESSIVE_RE = re.compile(
+    r"\b(?:set|change|update)\s+(?:the\s+)?(?P<name>.+?)(?:'s|s')?\s+"
+    r"(?:icon|emoji)\s+to\s+(?P<icon>\S+)[.!?]*\s*$",
+    re.IGNORECASE,
+)
 
 
 def try_action(
@@ -569,6 +581,13 @@ def try_action(
         return _run(
             "rename_category", {"old_name": old_name, "new_name": new_name}, res
         )
+
+    m = _SET_ICON_RE.search(q) or _SET_ICON_POSSESSIVE_RE.search(q)
+    if m:
+        name = m.group("name").strip().strip("\"'")
+        icon = m.group("icon").strip()
+        res = chat_tools.set_category_icon(db, user_id, name=name, icon=icon)
+        return _run("set_category_icon", {"name": name, "icon": icon}, res)
 
     m = _CREATE_CAT_RE.search(q)
     if m:

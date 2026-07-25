@@ -122,6 +122,8 @@ def _action_confirmation(transcript: list[dict[str, Any]]) -> str | None:
             return (
                 f"Renamed “{res.get('old_name')}” to “{res.get('new_name')}”."
             )
+        if action == "set_category_icon":
+            return f"Set {res.get('icon')} as the icon for “{res.get('name')}”."
     return None
 
 

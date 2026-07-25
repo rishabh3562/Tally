@@ -376,6 +376,34 @@ def rename_category(
     return {"action": "rename_category", "old_name": owned[0]["name"], "new_name": new_name}
 
 
+def set_category_icon(
+    db: Client, user_id: str, *, name: str = "", icon: str = "",
+    question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Set the emoji icon on one of the user's OWN categories. System categories
+    (user_id NULL) are shared, so their icon is left alone. Scoped to the caller."""
+    name = (name or "").strip()
+    icon = (icon or "").strip()
+    if not name or not icon:
+        return {"error": "a category name and an emoji are required"}
+    # Guard against setting the icon to a plain word ("house") instead of an emoji.
+    if icon.isascii() and icon.isalnum():
+        return {"error": "give me an emoji for the icon, e.g. 🏠"}
+    owned = (
+        db.table("categories").select("id,name")
+        .eq("user_id", user_id).ilike("name", name).execute().data
+        or []
+    )
+    if not owned:
+        if any(c["name"].lower() == name.lower() for c in _visible_categories(db, user_id)):
+            return {"error": f"“{name}” is a built-in category and can't be changed"}
+        return {"error": f"you don't have a category called “{name}”"}
+    db.table("categories").update({"icon": icon}).eq(
+        "id", owned[0]["id"]
+    ).eq("user_id", user_id).execute()
+    return {"action": "set_category_icon", "name": owned[0]["name"], "icon": icon}
+
+
 # --- registry & schema (fed to the model) -----------------------------------
 
 TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -394,6 +422,7 @@ ACTION_TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "categorize_merchant": categorize_merchant,
     "create_category": create_category,
     "rename_category": rename_category,
+    "set_category_icon": set_category_icon,
 }
 
 # Human-readable schema injected into the selection prompt. Kept terse on purpose:
@@ -412,4 +441,5 @@ Dates are YYYY-MM-DD. Fields marked ? are optional; omit them if the user gave n
 ACTION_SPECS = """\
 - categorize_merchant(merchant, category): set the category for EVERY payment whose merchant matches `merchant` (substring) and remember it. `category` must be an existing category name.
 - create_category(name): create a new custom category (e.g. 'Rent'). Use this first if the category the user wants does not exist, then call categorize_merchant.
-- rename_category(old_name, new_name): rename one of the user's OWN custom categories. Cannot rename built-in categories."""
+- rename_category(old_name, new_name): rename one of the user's OWN custom categories. Cannot rename built-in categories.
+- set_category_icon(name, icon): set the emoji icon on one of the user's OWN custom categories."""

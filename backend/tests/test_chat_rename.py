@@ -135,3 +135,51 @@ def test_deterministic_parse_ignores_non_command():
     out = chat_service.try_action("how much did I spend on food", "u1", _FakeDB(store))
     assert out is None
     assert _updates(store) == []
+
+
+# --- set_category_icon ------------------------------------------------------
+
+def test_set_icon_on_own_category_succeeds_and_is_scoped():
+    store = _store([{"id": "c1", "name": "Rent", "user_id": "u1"}])
+    out = chat_tools.set_category_icon(_FakeDB(store), "u1", name="Rent", icon="🏠")
+    assert out["action"] == "set_category_icon"
+    assert out["icon"] == "🏠"
+    ups = _updates(store)
+    assert len(ups) == 1
+    assert ups[0]["payload"] == {"icon": "🏠"}
+    assert ups[0]["eqs"]["user_id"] == "u1" and ups[0]["eqs"]["id"] == "c1"
+
+
+def test_cannot_set_icon_on_system_category():
+    store = _store([{"id": "sys", "name": "Food", "user_id": None}])
+    out = chat_tools.set_category_icon(_FakeDB(store), "u1", name="Food", icon="🍔")
+    assert "error" in out and "built-in" in out["error"]
+    assert _updates(store) == []
+
+
+def test_set_icon_rejects_plain_word():
+    store = _store([{"id": "c1", "name": "Rent", "user_id": "u1"}])
+    out = chat_tools.set_category_icon(_FakeDB(store), "u1", name="Rent", icon="house")
+    assert "error" in out and "emoji" in out["error"]
+    assert _updates(store) == []
+
+
+def test_deterministic_parse_runs_set_icon():
+    store = _store([{"id": "c1", "name": "Rent", "user_id": "u1"}])
+    out = chat_service.try_action("set the icon for Rent to 🏠", "u1", _FakeDB(store))
+    assert out is not None and "🏠" in out
+    assert len(_updates(store)) == 1
+
+
+def test_deterministic_parse_runs_set_icon_possessive():
+    store = _store([{"id": "c1", "name": "Rent", "user_id": "u1"}])
+    out = chat_service.try_action("change Rent's emoji to 🏠", "u1", _FakeDB(store))
+    assert out is not None and "🏠" in out
+    assert len(_updates(store)) == 1
+
+
+def test_set_icon_parser_ignores_non_icon_command():
+    store = _store([{"id": "c1", "name": "Rent", "user_id": "u1"}])
+    out = chat_service.try_action("set my budget to 500", "u1", _FakeDB(store))
+    assert out is None
+    assert _updates(store) == []
