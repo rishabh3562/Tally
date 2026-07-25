@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CardListSkeleton } from "@/components/common/Skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Sparkles, Layers } from "lucide-react";
@@ -122,9 +123,7 @@ export default function GroupsPage() {
       )}
 
       {isLoading ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-          Loading groups...
-        </div>
+        <CardListSkeleton />
       ) : isError ? (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
           Failed to load groups. Please try again.

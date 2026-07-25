@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { CardListSkeleton } from "@/components/common/Skeleton";
 import Link from "next/link";
 import apiClient from "@/lib/api";
 import type { Job, JobStatus } from "@/types";
@@ -52,9 +53,7 @@ export default function JobsPage() {
       </div>
 
       {isLoading ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-          Loading jobs...
-        </div>
+        <CardListSkeleton />
       ) : isError ? (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
           Failed to load import jobs. Please try again.

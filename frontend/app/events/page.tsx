@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { CardListSkeleton } from "@/components/common/Skeleton";
 import apiClient from "@/lib/api";
 import Link from "next/link";
 import { BookMarked } from "lucide-react";
@@ -33,9 +34,7 @@ export default function EventsPage() {
       </div>
 
       {isLoading ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-          Loading case studies...
-        </div>
+        <CardListSkeleton />
       ) : isError ? (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
           Failed to load case studies. Please try again.

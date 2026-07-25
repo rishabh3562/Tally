@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { TableRowsSkeleton } from "@/components/common/Skeleton";
 import { Sparkles } from "lucide-react";
 import apiClient from "@/lib/api";
 import { useTransactions } from "@/hooks/useTransactions";
@@ -712,11 +713,7 @@ export default function TransactionsPage() {
           </thead>
           <tbody className="divide-y">
             {isLoading ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                  Loading transactions...
-                </td>
-              </tr>
+              <TableRowsSkeleton rows={8} cols={6} />
             ) : error ? (
               <tr>
                 <td colSpan={6} className="px-6 py-8 text-center text-red-600">
