@@ -42,15 +42,35 @@ export interface Category {
   icon?: string;
 }
 
-// Event
+// Event / "Case study" (POST/GET /api/events)
+// A named grouping of scattered transactions from one life event. Many-to-many:
+// a transaction can belong to an event AND keep its own category/group.
 export interface Event {
   id: string;
-  user_id: string;
+  user_id?: string;
   name: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  metadata?: Record<string, any>;
-  summary?: string;
-  created_at: string;
+  description?: string | null;
+  summary?: string | null;
+  total_amount?: number | null;
+  currency?: string | null;
+  created_at?: string | null;
+}
+
+// Member transaction of an event (GET /api/events/{id}). Unlike group members,
+// each keeps its own category via the joined `categories` row.
+export interface EventTransaction {
+  id: string;
+  date: string;
+  amount: number;
+  raw_merchant: string;
+  memo: string | null;
+  category_id: string | null;
+  categories: { name: string } | null;
+}
+
+// Event detail (GET /api/events/{id})
+export interface EventDetail extends Event {
+  transactions: EventTransaction[];
 }
 
 // Account
@@ -274,6 +294,25 @@ export interface ChatTrace {
   action_taken: boolean;
   error: string | null;
   duration_ms: number | null;
+}
+
+// Split-expense / settle-up cluster (GET /api/insights/contributions)
+// A burst of small inbound transfers that offset a big spend (you paid ₹800 for a
+// game, 11 friends sent ~₹62 back → net ₹50).
+export interface Contribution {
+  date: string;
+  count: number;
+  total_received: number;
+  avg_amount: number;
+  transaction_ids: string[];
+  source_debit: { id: string; amount: number; merchant: string } | null;
+  net_cost: number | null;
+}
+
+export interface ContributionsResponse {
+  data: Contribution[];
+  count: number;
+  total_recovered: number;
 }
 
 // Bulk AI recategorization (POST /api/recategorize)

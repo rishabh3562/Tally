@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type {
   Category,
   CategorySuggestion,
+  Event,
   Group,
   TransactionListItem,
 } from "@/types";
@@ -264,9 +265,17 @@ export default function TransactionsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<string | null>(null);
+  const [bannerLink, setBannerLink] = useState<{ href: string; label: string }>({
+    href: "/groups",
+    label: "View groups →",
+  });
   const [clubError, setClubError] = useState<string | null>(null);
   const [clubModalOpen, setClubModalOpen] = useState(false);
   const [clubName, setClubName] = useState("");
+  const [eventError, setEventError] = useState<string | null>(null);
+  const [eventModalOpen, setEventModalOpen] = useState(false);
+  const [eventName, setEventName] = useState("");
+  const [eventDescription, setEventDescription] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -336,11 +345,44 @@ export default function TransactionsPage() {
       setSelected(new Set());
       setClubError(null);
       setClubModalOpen(false);
+      setBannerLink({ href: "/groups", label: "View groups →" });
       setBanner(`Grouped ${group.count} transactions into “${group.name}”.`);
     },
     onError: (err: any) => {
       if (err?.response?.status === 401) return; // auth layer handles this
       setClubError("Could not create the group. Please try again.");
+    },
+  });
+
+  const eventMutation = useMutation({
+    mutationFn: async ({
+      name,
+      description,
+      ids,
+    }: {
+      name: string;
+      description: string;
+      ids: string[];
+    }) => {
+      const res = await apiClient.post<Event>("/api/events", {
+        name,
+        description: description || undefined,
+        transaction_ids: ids,
+      });
+      return res.data;
+    },
+    onSuccess: (event) => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      setSelected(new Set());
+      setEventError(null);
+      setEventModalOpen(false);
+      setBannerLink({ href: "/events", label: "View case studies →" });
+      setBanner(`Saved “${event.name}” as a case study.`);
+    },
+    onError: (err: any) => {
+      if (err?.response?.status === 401) return; // auth layer handles this
+      setEventError("Could not save the event. Please try again.");
     },
   });
 
@@ -358,6 +400,25 @@ export default function TransactionsPage() {
     clubMutation.mutate({ name: clubName.trim(), ids });
   };
 
+  const handleSaveEvent = () => {
+    if (selected.size === 0) return;
+    setEventName("");
+    setEventDescription("");
+    setEventError(null);
+    setEventModalOpen(true);
+  };
+
+  const confirmEvent = () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !eventName.trim()) return;
+    setEventError(null);
+    eventMutation.mutate({
+      name: eventName.trim(),
+      description: eventDescription.trim(),
+      ids,
+    });
+  };
+
   const selectedCount = selected.size;
 
   const bannerNode = useMemo(() => {
@@ -366,14 +427,14 @@ export default function TransactionsPage() {
       <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg mb-4 flex items-center justify-between">
         <span>{banner}</span>
         <Link
-          href="/groups"
+          href={bannerLink.href}
           className="text-green-700 hover:text-green-800 font-medium text-sm"
         >
-          View groups →
+          {bannerLink.label}
         </Link>
       </div>
     );
-  }, [banner]);
+  }, [banner, bannerLink]);
 
   return (
     <div>
@@ -431,6 +492,64 @@ export default function TransactionsPage() {
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50"
               >
                 {clubMutation.isPending ? "Clubbing…" : "Create group"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save-as-event (case study) modal */}
+      {eventModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !eventMutation.isPending && setEventModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-900 mb-1">
+              Save as a case study
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Grouping {selectedCount} transaction{selectedCount === 1 ? "" : "s"}{" "}
+              into a named event. Each transaction keeps its own category.
+            </p>
+            <input
+              autoFocus
+              type="text"
+              value={eventName}
+              onChange={(e) => setEventName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setEventModalOpen(false);
+              }}
+              placeholder="e.g. New phone, Sister's wedding…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 mb-3"
+            />
+            <textarea
+              value={eventDescription}
+              onChange={(e) => setEventDescription(e.target.value)}
+              placeholder="Optional — what was this event about?"
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 mb-4 resize-none"
+            />
+            {eventError && (
+              <p className="text-sm text-red-600 mb-3">{eventError}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setEventModalOpen(false)}
+                disabled={eventMutation.isPending}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmEvent}
+                disabled={!eventName.trim() || eventMutation.isPending}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50"
+              >
+                {eventMutation.isPending ? "Saving…" : "Save event"}
               </button>
             </div>
           </div>
@@ -541,6 +660,13 @@ export default function TransactionsPage() {
               {clubMutation.isPending
                 ? "Clubbing…"
                 : `Club ${selectedCount} selected`}
+            </button>
+            <button
+              onClick={handleSaveEvent}
+              disabled={eventMutation.isPending}
+              className="bg-blue-500 text-white hover:bg-blue-400 font-medium text-sm px-4 py-1.5 rounded-lg transition disabled:opacity-60"
+            >
+              {eventMutation.isPending ? "Saving…" : "Save as Event"}
             </button>
           </div>
         </div>

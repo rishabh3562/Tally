@@ -3,8 +3,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
-import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash, Wand2 } from "lucide-react";
-import type { AIInsights, InsightsSummary, RecategorizeResponse } from "@/types";
+import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash, Wand2, Users } from "lucide-react";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import type {
+  AIInsights,
+  ContributionsResponse,
+  InsightsSummary,
+  RecategorizeResponse,
+} from "@/types";
 
 function inr(value: number | null | undefined): string {
   return Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -93,6 +99,18 @@ export default function InsightsPage() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: contributions, isSuccess: contributionsLoaded } =
+    useQuery<ContributionsResponse>({
+      queryKey: ["contributions"],
+      queryFn: async () => {
+        const response = await apiClient.get("/api/insights/contributions");
+        return response.data;
+      },
+      refetchOnWindowFocus: false,
+    });
+
+  const contributionClusters = contributions?.data ?? [];
+
   const maxCategory = Math.max(1, ...(summary?.top_categories ?? []).map((c) => c.total));
   const maxMonthly = Math.max(
     1,
@@ -146,7 +164,7 @@ export default function InsightsPage() {
               type="date"
               value={start}
               onChange={(e) => setStart(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />
           </div>
           <div>
@@ -155,7 +173,7 @@ export default function InsightsPage() {
               type="date"
               value={end}
               onChange={(e) => setEnd(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />
           </div>
           <div className="flex items-end">
@@ -300,6 +318,73 @@ export default function InsightsPage() {
           </div>
         </>
       )}
+
+      {/* Split expenses / contributions */}
+      {contributionClusters.length > 0 ? (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center gap-3 mb-1">
+            <Users className="w-6 h-6 text-blue-600" />
+            <h2 className="text-lg font-bold text-gray-900">
+              Split expenses / contributions
+            </h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Clusters where friends sent money back to offset a big spend.
+            {typeof contributions?.total_recovered === "number" && (
+              <>
+                {" "}
+                <span className="font-medium text-gray-700">
+                  {formatCurrency(contributions.total_recovered)}
+                </span>{" "}
+                recovered in total.
+              </>
+            )}
+          </p>
+          <div className="space-y-3">
+            {contributionClusters.map((c, i) => (
+              <div
+                key={`${c.date}-${i}`}
+                className="rounded-lg border border-gray-200 p-4"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">
+                      {c.count} {c.count === 1 ? "person" : "people"} sent ~
+                      {formatCurrency(c.avg_amount)} back
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {formatDate(c.date)} ·{" "}
+                      {formatCurrency(c.total_received)} received
+                    </p>
+                  </div>
+                  {c.source_debit && c.net_cost !== null && (
+                    <span className="shrink-0 text-sm font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full whitespace-nowrap">
+                      net {formatCurrency(c.net_cost)}
+                    </span>
+                  )}
+                </div>
+                {c.source_debit && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 text-sm text-gray-700">
+                    <span className="text-gray-500">Linked spend:</span>{" "}
+                    <span className="font-medium text-gray-900">
+                      {c.source_debit.merchant}
+                    </span>{" "}
+                    <span className="whitespace-nowrap">
+                      {formatCurrency(c.source_debit.amount)} paid →{" "}
+                      {formatCurrency(c.total_received)} back
+                      {c.net_cost !== null && (
+                        <> → net {formatCurrency(c.net_cost)}</>
+                      )}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : contributionsLoaded ? (
+        <p className="text-sm text-gray-400">No split expenses detected.</p>
+      ) : null}
 
       {/* AI Insights */}
       <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
