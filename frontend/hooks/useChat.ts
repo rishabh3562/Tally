@@ -13,6 +13,7 @@ export interface Message {
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const queryClient = useQueryClient();
 
   // Load saved history once on mount so the conversation survives a reload.
@@ -39,6 +40,8 @@ export const useChat = () => {
         }
       } catch {
         // History is best-effort; ignore load failures.
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
       }
     })();
     return () => {
@@ -151,6 +154,7 @@ export const useChat = () => {
   return {
     messages,
     isLoading,
+    historyLoading,
     sendMessage,
   };
 };

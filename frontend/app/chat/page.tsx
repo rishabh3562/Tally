@@ -19,7 +19,7 @@ const DO_PROMPTS = [
 ];
 
 export default function ChatPage() {
-  const { messages, isLoading, sendMessage } = useChat();
+  const { messages, isLoading, historyLoading, sendMessage } = useChat();
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,7 +69,14 @@ export default function ChatPage() {
 
       {/* Messages */}
       <div className="flex-1 bg-white rounded-lg shadow p-6 mb-6 overflow-y-auto space-y-4">
-        {messages.length === 0 ? (
+        {historyLoading ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="w-full max-w-2xl grid grid-cols-1 md:grid-cols-2 gap-4 animate-pulse" aria-hidden="true">
+              <div className="h-40 rounded-xl bg-gray-100" />
+              <div className="h-40 rounded-xl bg-gray-100" />
+            </div>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <div className="w-full max-w-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Ask — questions answered from your real data */}
