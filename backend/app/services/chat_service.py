@@ -312,11 +312,14 @@ def _record_trace(
     action_taken = any(
         isinstance(s.get("result"), dict) and "action" in s["result"] for s in steps
     )
+    # Bound what we persist per turn (tool results are already row-capped at
+    # _MAX_ROWS; this caps the number of steps so one turn can't bloat the table).
+    stored_steps = steps[:8]
     try:
         db.table("chat_traces").insert({
             "user_id": user_id,
             "question": question,
-            "steps": steps,
+            "steps": stored_steps,
             "answer": answer,
             "source": source,
             "action_taken": action_taken,

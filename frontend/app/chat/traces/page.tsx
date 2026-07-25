@@ -58,8 +58,11 @@ function TraceCard({ t }: { t: ChatTrace }) {
         )}
       </div>
 
-      {t.error && (
-        <p className="mt-2 text-xs text-red-600">fell back: {t.error}</p>
+      {t.source !== "agent" && (
+        <p className="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
+          Answered <strong>without AI</strong> (deterministic engine)
+          {t.error ? ` — ${t.error}` : ""}.
+        </p>
       )}
 
       {open && steps.length > 0 && (
@@ -90,6 +93,9 @@ export default function ChatTracesPage() {
   });
 
   const traces = data ?? [];
+  // If the most recent turn didn't use the AI agent, the chat is almost certainly
+  // running keyless — the single most useful thing to surface.
+  const runningWithoutAi = traces.length > 0 && traces[0].source !== "agent";
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -105,6 +111,16 @@ export default function ChatTracesPage() {
           ← Chat
         </Link>
       </div>
+
+      {runningWithoutAi && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 text-sm text-amber-800">
+          <strong>Chat is answering without AI.</strong> The most recent turn fell back
+          to the deterministic engine
+          {traces[0].error ? ` (${traces[0].error})` : ""} — set{" "}
+          <code className="font-mono bg-amber-100 px-1 rounded">GEMINI_API_KEYS</code> in
+          the backend to enable the smart agent, then ask again.
+        </div>
+      )}
 
       {isLoading ? (
         <p className="text-gray-500">Loading…</p>
