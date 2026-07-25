@@ -3,13 +3,19 @@
 import { useChat } from "@/hooks/useChat";
 import { useState } from "react";
 import Link from "next/link";
-import { Send, MessageSquare } from "lucide-react";
+import { Send, Search, Wand2 } from "lucide-react";
 
-const EXAMPLE_PROMPTS = [
+// Two capabilities, shown distinctly: the assistant both ANSWERS questions and
+// PERFORMS changes on your data — the "tell it and it does it" (Palantir) idea.
+const ASK_PROMPTS = [
   "How much did I spend on food last month?",
   "Which merchants did I spend the most at?",
+  "Did I spend more this month than last month?",
+];
+const DO_PROMPTS = [
   "Put all my Amazon purchases under Shopping",
   "Create a category called Rent",
+  "Categorize Swiggy as Food & Dining",
 ];
 
 export default function ChatPage() {
@@ -52,23 +58,49 @@ export default function ChatPage() {
       <div className="flex-1 bg-white rounded-lg shadow p-6 mb-6 overflow-y-auto space-y-4">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
-            <div className="text-center">
-              <MessageSquare className="mx-auto w-16 h-16 text-gray-300 mb-4" />
-              <p className="text-gray-500">
-                Ask me about your finances. Try one of these:
-              </p>
-              <div className="mt-4 flex flex-col items-center gap-2">
-                {EXAMPLE_PROMPTS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    onClick={() => handleExampleClick(prompt)}
-                    disabled={isLoading}
-                    className="text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 px-4 py-2 rounded-full transition"
-                  >
-                    {prompt}
-                  </button>
-                ))}
+            <div className="w-full max-w-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Ask — questions answered from your real data */}
+              <div className="rounded-xl border border-gray-200 p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Search className="w-4 h-4 text-blue-600" />
+                  <h2 className="text-sm font-semibold text-gray-900">Ask</h2>
+                  <span className="text-xs text-gray-400">answered from your data</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {ASK_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => handleExampleClick(prompt)}
+                      disabled={isLoading}
+                      className="text-left text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 px-3 py-2 rounded-lg transition"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Do — the assistant changes your data on command */}
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Wand2 className="w-4 h-4 text-indigo-600" />
+                  <h2 className="text-sm font-semibold text-gray-900">Do</h2>
+                  <span className="text-xs text-gray-400">I&apos;ll make the change</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {DO_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => handleExampleClick(prompt)}
+                      disabled={isLoading}
+                      className="text-left text-sm text-indigo-700 bg-white hover:bg-indigo-100 border border-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg transition"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
