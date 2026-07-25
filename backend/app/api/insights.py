@@ -17,10 +17,34 @@ from supabase import Client
 from app.core.auth import get_current_user
 from app.core.database import get_supabase
 from app.services import llm_client
+from app.services.contributions import detect_contributions
 
 logger = logging.getLogger("tally.insights")
 
 router = APIRouter(prefix="/api/insights", tags=["insights"])
+
+
+@router.get("/contributions")
+async def get_contributions(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Detect likely 'contri'/settle-up clusters — many small inbound transfers
+    that offset a big spend — and report the NET cost, not the gross (#8)."""
+    try:
+        rows = db.table("transactions").select(
+            "id,date,amount,raw_merchant"
+        ).eq("user_id", user_id).execute().data or []
+        clusters = detect_contributions(rows)
+        return {
+            "data": clusters,
+            "count": len(clusters),
+            "total_recovered": round(sum(c["total_received"] for c in clusters), 2),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 def _fetch_transactions(
