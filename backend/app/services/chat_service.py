@@ -335,6 +335,34 @@ def _answer_received(txns: list[dict], period: str) -> str:
     return f"You received {_rupees(total)} across {n} transactions ({period})."
 
 
+def _is_average_query(question: str) -> bool:
+    """A request for the typical monthly spend / run-rate."""
+    q = question.lower()
+    return any(w in q for w in ["average", "avg", "run rate", "run-rate", "on average"])
+
+
+def _answer_average(db: Client, user_id: str) -> str:
+    """Average monthly spend across the user's whole history, with the peak month."""
+    txns = _fetch_transactions(db, user_id, None, None)
+    monthly: dict[str, float] = defaultdict(float)
+    for t in txns:
+        amt = float(t.get("amount") or 0)
+        if amt <= 0:  # spends only
+            continue
+        ym = str(t.get("date") or "")[:7]  # YYYY-MM
+        if len(ym) == 7:
+            monthly[ym] += amt
+    if not monthly:
+        return "I don't have enough spending history yet to work out a monthly average."
+    avg = sum(monthly.values()) / len(monthly)
+    hi_month, hi_val = max(monthly.items(), key=lambda kv: kv[1])
+    n = len(monthly)
+    return (
+        f"You spend about {_rupees(avg)}/month on average across {n} "
+        f"month{'s' if n != 1 else ''} (highest was {_rupees(hi_val)} in {hi_month})."
+    )
+
+
 def _is_recurring_query(question: str) -> bool:
     """A request to LIST recurring/subscription payments (not 'how much on
     subscriptions', which is a category-spend question)."""
@@ -453,6 +481,9 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
 
     if _is_recurring_query(question):
         return _answer_recurring(db, user_id)
+
+    if _is_average_query(question):
+        return _answer_average(db, user_id)
 
     if intent == IntentType.PERIOD_COMPARISON:
         return _answer_comparison(db, user_id, question)
