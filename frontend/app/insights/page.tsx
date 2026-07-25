@@ -10,6 +10,7 @@ import type {
   ContributionsResponse,
   InsightsSummary,
   RecategorizeResponse,
+  RecurringResponse,
 } from "@/types";
 
 import { formatAmount as inr } from "@/lib/format";
@@ -108,6 +109,17 @@ export default function InsightsPage() {
     });
 
   const contributionClusters = contributions?.data ?? [];
+
+  const { data: recurring } = useQuery<RecurringResponse>({
+    queryKey: ["recurring"],
+    queryFn: async () => {
+      const response = await apiClient.get("/api/insights/recurring");
+      return response.data;
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60_000,
+  });
+  const recurringItems = recurring?.data ?? [];
 
   // Promote a detected split-expense cluster into a tracked case-study event
   // (the #8 → #9 link). Includes the linked spend plus every repayment.
@@ -343,6 +355,38 @@ export default function InsightsPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* Recurring payments / subscriptions */}
+      {recurringItems.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center gap-3 mb-1">
+            <Wallet className="w-6 h-6 text-indigo-600" />
+            <h2 className="text-lg font-bold text-gray-900">Recurring payments</h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Merchants charged on a regular monthly cadence — about{" "}
+            <span className="font-medium text-gray-700">
+              ₹{inr(recurring?.monthly_total ?? 0)}/mo
+            </span>{" "}
+            across {recurringItems.length} of them.
+          </p>
+          <div className="divide-y">
+            {recurringItems.map((r) => (
+              <div key={r.merchant} className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{r.merchant}</p>
+                  <p className="text-xs text-gray-500">
+                    {r.count} charges · every ~{r.cadence_days} days
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-gray-900">
+                  ₹{inr(r.monthly)}/mo
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Split expenses / contributions */}

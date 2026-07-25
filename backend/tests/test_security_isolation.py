@@ -161,6 +161,20 @@ async def test_groups_list_never_leaks_other_user():
     assert {g["id"] for g in out} == {"g-a"}   # B's group invisible to A
 
 
+async def test_recurring_never_leaks_other_user():
+    # A has a monthly subscription; B has their own. A must only see A's.
+    rows = (
+        [{"id": f"a{i}", "user_id": "A", "is_transfer": False, "amount": 199,
+          "date": f"2026-0{i + 1}-05", "raw_merchant": "Netflix"} for i in range(3)]
+        + [{"id": f"b{i}", "user_id": "B", "is_transfer": False, "amount": 499,
+            "date": f"2026-0{i + 1}-05", "raw_merchant": "Spotify"} for i in range(3)]
+    )
+    db = _FakeDB({"transactions": rows})
+    out = await insights.get_recurring(user_id="A", db=db)
+    merchants = {r["merchant"] for r in out["data"]}
+    assert merchants == {"Netflix"}   # B's Spotify never detected for A
+
+
 async def test_contributions_never_leaks_other_user():
     # A has a 3-credit cluster; B has their own. A must only see A's.
     rows = (

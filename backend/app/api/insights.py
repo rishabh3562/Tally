@@ -18,6 +18,7 @@ from app.core.auth import get_current_user
 from app.core.database import get_supabase
 from app.services import llm_client
 from app.services.contributions import detect_contributions
+from app.services.recurring import detect_recurring
 from app.services.merchant import canonical_merchant
 
 logger = logging.getLogger("tally.insights")
@@ -41,6 +42,29 @@ async def get_contributions(
             "data": clusters,
             "count": len(clusters),
             "total_recovered": round(sum(c["total_received"] for c in clusters), 2),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@router.get("/recurring")
+async def get_recurring(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Surface likely subscriptions — merchants charged on a regular monthly
+    cadence for a similar amount — with their estimated monthly cost."""
+    try:
+        rows = db.table("transactions").select(
+            "amount,date,raw_merchant"
+        ).eq("user_id", user_id).eq("is_transfer", False).execute().data or []
+        items = detect_recurring(rows)
+        return {
+            "data": items,
+            "count": len(items),
+            "monthly_total": round(sum(i["monthly"] for i in items), 2),
         }
     except Exception as e:
         raise HTTPException(

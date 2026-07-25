@@ -315,6 +315,21 @@ export interface ContributionsResponse {
   total_recovered: number;
 }
 
+// Recurring payments / subscriptions (GET /api/insights/recurring)
+export interface RecurringPayment {
+  merchant: string;
+  avg_amount: number;
+  monthly: number;
+  count: number;
+  cadence_days: number;
+}
+
+export interface RecurringResponse {
+  data: RecurringPayment[];
+  count: number;
+  monthly_total: number;
+}
+
 // Bulk AI recategorization (POST /api/recategorize)
 export interface RecategorizeResponse {
   status: string;
