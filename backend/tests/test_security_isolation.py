@@ -8,12 +8,23 @@ returns user B's rows. If an endpoint ever drops its ``.eq("user_id", ...)``,
 one of these fails.
 """
 
-from app.api import transactions
+from app.api import transactions, events, groups
 
 
 class _Result:
     def __init__(self, data):
         self.data = data
+
+
+class _Not:
+    """Supports the ``query.not_.is_(col, 'null')`` chain (negation is a no-op
+    for these isolation tests — we only assert user_id scoping)."""
+
+    def __init__(self, q):
+        self._q = q
+
+    def is_(self, col, val):
+        return self._q
 
 
 class _Query:
@@ -34,6 +45,10 @@ class _Query:
     def is_(self, col, val):
         self._eq.append((col, None))
         return self
+
+    @property
+    def not_(self):
+        return _Not(self)
 
     def eq(self, col, val):
         self._eq.append((col, val))
@@ -118,3 +133,29 @@ async def test_review_queue_never_leaks_other_user():
     out = await transactions.get_review_queue(user_id="B", db=db)
     ids = {r["id"] for r in out["data"]}
     assert ids == {"b1"}          # A's row invisible to B
+
+
+async def test_events_list_never_leaks_other_user():
+    db = _FakeDB({"events": [
+        {"id": "e-a", "user_id": "A", "name": "A trip", "created_at": "2026-07-01"},
+        {"id": "e-b", "user_id": "B", "name": "B trip", "created_at": "2026-07-01"},
+    ]})
+    out = await events.list_events(user_id="A", db=db)
+    assert {e["id"] for e in out} == {"e-a"}   # B's event invisible to A
+
+
+async def test_groups_list_never_leaks_other_user():
+    db = _FakeDB({
+        "transaction_groups": [
+            {"id": "g-a", "user_id": "A", "name": "A group", "kind": "manual",
+             "created_at": "2026-07-01"},
+            {"id": "g-b", "user_id": "B", "name": "B group", "kind": "manual",
+             "created_at": "2026-07-01"},
+        ],
+        "transactions": [
+            {"user_id": "A", "group_id": "g-a", "amount": 100},
+            {"user_id": "B", "group_id": "g-b", "amount": 200},
+        ],
+    })
+    out = await groups.list_groups(user_id="A", db=db)
+    assert {g["id"] for g in out} == {"g-a"}   # B's group invisible to A
