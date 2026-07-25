@@ -363,6 +363,51 @@ def _answer_average(db: Client, user_id: str) -> str:
     )
 
 
+def _is_change_query(question: str) -> bool:
+    """A request for what rose the most vs last month."""
+    q = question.lower()
+    return any(w in q for w in [
+        "what jumped", "what went up", "what increased", "what rose", "what spiked",
+        "what grew", "biggest change", "changed the most", "spending jump",
+        "went up this month", "jumped this month",
+    ])
+
+
+def _answer_what_jumped(db: Client, user_id: str) -> str:
+    """The category whose spend rose the most between the two most recent months."""
+    txns = _fetch_transactions(db, user_id, None, None)
+    monthly_cat: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for t in txns:
+        amt = float(t.get("amount") or 0)
+        if amt <= 0:  # spends only
+            continue
+        ym = str(t.get("date") or "")[:7]  # YYYY-MM
+        if len(ym) != 7:
+            continue
+        monthly_cat[ym][_category_name(t)] += amt
+    months = sorted(monthly_cat)
+    if len(months) < 2:
+        return "I need at least two months of spending to compare — not enough history yet."
+    latest, prev = months[-1], months[-2]
+    cats = set(monthly_cat[latest]) | set(monthly_cat[prev])
+    deltas = sorted(
+        ((c, monthly_cat[latest].get(c, 0.0) - monthly_cat[prev].get(c, 0.0)) for c in cats),
+        key=lambda cd: cd[1], reverse=True,
+    )
+    top_cat, top_delta = deltas[0]
+    if top_delta <= 0:
+        return (
+            f"Nothing rose from {prev} to {latest} — your spending was flat or down "
+            "across every category."
+        )
+    a = monthly_cat[prev].get(top_cat, 0.0)
+    b = monthly_cat[latest].get(top_cat, 0.0)
+    return (
+        f"Your biggest increase from {prev} to {latest} was {top_cat}: up "
+        f"{_rupees(top_delta)} (from {_rupees(a)} to {_rupees(b)})."
+    )
+
+
 def _is_recurring_query(question: str) -> bool:
     """A request to LIST recurring/subscription payments (not 'how much on
     subscriptions', which is a category-spend question)."""
@@ -484,6 +529,9 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
 
     if _is_average_query(question):
         return _answer_average(db, user_id)
+
+    if _is_change_query(question):
+        return _answer_what_jumped(db, user_id)
 
     if intent == IntentType.PERIOD_COMPARISON:
         return _answer_comparison(db, user_id, question)
