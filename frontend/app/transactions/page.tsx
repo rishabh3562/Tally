@@ -142,7 +142,7 @@ function TransactionRow({
                 e.target.value && categoryMutation.mutate(e.target.value)
               }
               disabled={categoryMutation.isPending || categories.length === 0}
-              className="text-sm border border-gray-300 rounded-lg px-2 py-1 bg-white max-w-[11rem] disabled:opacity-50"
+              className="text-sm text-gray-900 border border-gray-300 rounded-lg px-2 py-1 bg-white max-w-[11rem] disabled:opacity-50"
               aria-label={`Category for ${tx.raw_merchant}`}
             >
               <option value="" disabled>

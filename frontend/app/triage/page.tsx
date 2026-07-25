@@ -86,7 +86,7 @@ function DrillIn({
                   e.target.value &&
                   override.mutate({ id: r.id, categoryId: e.target.value })
                 }
-                className="text-sm border border-gray-300 rounded-lg px-2 py-1 bg-white max-w-[10rem]"
+                className="text-sm text-gray-900 border border-gray-300 rounded-lg px-2 py-1 bg-white max-w-[10rem]"
                 aria-label={`Category for payment on ${r.date}`}
               >
                 <option value="" disabled>
@@ -197,7 +197,7 @@ function MerchantCard({
               <button
                 key={c.id}
                 onClick={() => onAssign(c.id)}
-                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs hover:border-blue-300 hover:bg-blue-50"
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700 hover:border-blue-300 hover:bg-blue-50"
                 title={`Press ${i + 1}`}
               >
                 <kbd className="text-[10px] text-gray-400">{i + 1}</kbd>

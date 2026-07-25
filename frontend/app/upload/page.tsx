@@ -96,7 +96,7 @@ export default function UploadPage() {
             <select
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Choose an account...</option>
               {accounts?.map((acc: any) => (
@@ -114,7 +114,7 @@ export default function UploadPage() {
             <select
               value={bankCode}
               onChange={(e) => setBankCode(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
             >
               <option value="HDFC">HDFC Bank</option>
               <option value="ICICI">ICICI Bank</option>

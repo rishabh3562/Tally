@@ -183,7 +183,7 @@ export default function AccountsPage() {
                   value={formData.bank_code}
                   onChange={(e) => setFormData({ ...formData, bank_code: e.target.value })}
                   disabled={createMutation.isPending}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50"
                 >
                   <option value="">Select your bank</option>
                   {BANK_CODES.map((bank) => (

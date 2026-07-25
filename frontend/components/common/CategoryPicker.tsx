@@ -101,7 +101,7 @@ export default function CategoryPicker({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={placeholder}
-          className="w-full text-sm outline-none disabled:opacity-50"
+          className="w-full text-sm text-gray-900 placeholder:text-gray-400 outline-none disabled:opacity-50"
           aria-label="Search or create a category"
         />
       </div>
@@ -113,7 +113,9 @@ export default function CategoryPicker({
               onMouseEnter={() => setHighlight(i)}
               onClick={() => choose(i)}
               className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
-                highlight === i ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50"
+                highlight === i
+                  ? "bg-blue-50 text-blue-700"
+                  : "text-gray-700 hover:bg-gray-50"
               }`}
             >
               <span>{c.icon ?? "🏷️"}</span>
