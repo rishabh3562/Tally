@@ -404,6 +404,36 @@ def set_category_icon(
     return {"action": "set_category_icon", "name": owned[0]["name"], "icon": icon}
 
 
+def delete_category(
+    db: Client, user_id: str, *, name: str = "", question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Delete one of the user's OWN categories — but ONLY if it's empty, so no
+    label can ever be lost. Refuses built-in categories and any category that
+    still has transactions. Scoped to the caller's user_id."""
+    name = (name or "").strip()
+    if not name:
+        return {"error": "a category name is required"}
+    owned = (
+        db.table("categories").select("id,name")
+        .eq("user_id", user_id).ilike("name", name).execute().data
+        or []
+    )
+    if not owned:
+        if any(c["name"].lower() == name.lower() for c in _visible_categories(db, user_id)):
+            return {"error": f"“{name}” is a built-in category and can't be deleted"}
+        return {"error": f"you don't have a category called “{name}”"}
+    cat_id = owned[0]["id"]
+    used = (
+        db.table("transactions").select("id")
+        .eq("user_id", user_id).eq("category_id", cat_id).limit(1).execute().data
+        or []
+    )
+    if used:
+        return {"error": f"“{owned[0]['name']}” still has transactions — recategorize them first"}
+    db.table("categories").delete().eq("id", cat_id).eq("user_id", user_id).execute()
+    return {"action": "delete_category", "name": owned[0]["name"]}
+
+
 # --- registry & schema (fed to the model) -----------------------------------
 
 TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -423,6 +453,7 @@ ACTION_TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "create_category": create_category,
     "rename_category": rename_category,
     "set_category_icon": set_category_icon,
+    "delete_category": delete_category,
 }
 
 # Human-readable schema injected into the selection prompt. Kept terse on purpose:
@@ -442,4 +473,5 @@ ACTION_SPECS = """\
 - categorize_merchant(merchant, category): set the category for EVERY payment whose merchant matches `merchant` (substring) and remember it. `category` must be an existing category name.
 - create_category(name): create a new custom category (e.g. 'Rent'). Use this first if the category the user wants does not exist, then call categorize_merchant.
 - rename_category(old_name, new_name): rename one of the user's OWN custom categories. Cannot rename built-in categories.
-- set_category_icon(name, icon): set the emoji icon on one of the user's OWN custom categories."""
+- set_category_icon(name, icon): set the emoji icon on one of the user's OWN custom categories.
+- delete_category(name): delete one of the user's OWN custom categories, only if it has no transactions."""

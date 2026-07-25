@@ -124,6 +124,8 @@ def _action_confirmation(transcript: list[dict[str, Any]]) -> str | None:
             )
         if action == "set_category_icon":
             return f"Set {res.get('icon')} as the icon for “{res.get('name')}”."
+        if action == "delete_category":
+            return f"Deleted the category “{res.get('name')}”."
     return None
 
 

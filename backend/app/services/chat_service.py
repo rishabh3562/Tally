@@ -547,6 +547,18 @@ _SET_ICON_POSSESSIVE_RE = re.compile(
     r"(?:icon|emoji)\s+to\s+(?P<icon>\S+)[.!?]*\s*$",
     re.IGNORECASE,
 )
+# "delete the Rent category" / "remove my Rent category". Requires the word
+# "category", so "remove my food spending" won't match.
+_DELETE_CAT_RE = re.compile(
+    r"\b(?:delete|remove)\s+(?:the\s+|my\s+)?(?P<name>.+?)\s+categor(?:y|ies)[.!?]*\s*$",
+    re.IGNORECASE,
+)
+# "delete category Rent" / "remove the category called Rent".
+_DELETE_CAT_RE2 = re.compile(
+    r"\b(?:delete|remove)\s+(?:the\s+|my\s+)?categor(?:y|ies)\s+"
+    r"(?:called\s+|named\s+)?(?P<name>.+?)[.!?]*\s*$",
+    re.IGNORECASE,
+)
 
 
 def try_action(
@@ -588,6 +600,12 @@ def try_action(
         icon = m.group("icon").strip()
         res = chat_tools.set_category_icon(db, user_id, name=name, icon=icon)
         return _run("set_category_icon", {"name": name, "icon": icon}, res)
+
+    m = _DELETE_CAT_RE.search(q) or _DELETE_CAT_RE2.search(q)
+    if m:
+        name = m.group("name").strip().strip("\"'")
+        res = chat_tools.delete_category(db, user_id, name=name)
+        return _run("delete_category", {"name": name}, res)
 
     m = _CREATE_CAT_RE.search(q)
     if m:

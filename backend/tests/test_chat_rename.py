@@ -41,10 +41,17 @@ class _Query:
         self._op, self._payload = "update", payload
         return self
 
+    def delete(self):
+        self._op = "delete"
+        return self
+
+    def limit(self, *a, **k):
+        return self
+
     def execute(self):
-        if self._op == "update":
+        if self._op in ("update", "delete"):
             self.store["log"].append(
-                {"table": self.table, "op": "update",
+                {"table": self.table, "op": self._op,
                  "payload": self._payload, "eqs": dict(self._eq)}
             )
             return _Res([{"id": "x"}])
@@ -68,12 +75,16 @@ class _FakeDB:
         return _Query(name, self.store)
 
 
-def _store(categories):
-    return {"data": {"categories": categories}, "log": []}
+def _store(categories, transactions=None):
+    return {"data": {"categories": categories, "transactions": transactions or []}, "log": []}
 
 
 def _updates(store):
     return [l for l in store["log"] if l["op"] == "update"]
+
+
+def _deletes(store):
+    return [l for l in store["log"] if l["op"] == "delete"]
 
 
 def test_rename_own_category_succeeds_and_is_scoped():
@@ -183,3 +194,54 @@ def test_set_icon_parser_ignores_non_icon_command():
     out = chat_service.try_action("set my budget to 500", "u1", _FakeDB(store))
     assert out is None
     assert _updates(store) == []
+
+
+# --- delete_category --------------------------------------------------------
+
+def test_delete_empty_own_category_succeeds_and_is_scoped():
+    store = _store([{"id": "c1", "name": "Misc", "user_id": "u1"}], transactions=[])
+    out = chat_tools.delete_category(_FakeDB(store), "u1", name="Misc")
+    assert out["action"] == "delete_category" and out["name"] == "Misc"
+    dels = _deletes(store)
+    assert len(dels) == 1
+    assert dels[0]["table"] == "categories"
+    assert dels[0]["eqs"]["user_id"] == "u1" and dels[0]["eqs"]["id"] == "c1"
+
+
+def test_delete_category_with_transactions_is_refused():
+    store = _store(
+        [{"id": "c1", "name": "Misc", "user_id": "u1"}],
+        transactions=[{"id": "t1", "user_id": "u1", "category_id": "c1"}],
+    )
+    out = chat_tools.delete_category(_FakeDB(store), "u1", name="Misc")
+    assert "error" in out and "still has transactions" in out["error"]
+    assert _deletes(store) == []   # nothing deleted
+
+
+def test_cannot_delete_system_category():
+    store = _store([{"id": "sys", "name": "Food", "user_id": None}])
+    out = chat_tools.delete_category(_FakeDB(store), "u1", name="Food")
+    assert "error" in out and "built-in" in out["error"]
+    assert _deletes(store) == []
+
+
+def test_deterministic_parse_runs_delete():
+    store = _store([{"id": "c1", "name": "Misc", "user_id": "u1"}], transactions=[])
+    out = chat_service.try_action("delete the Misc category", "u1", _FakeDB(store))
+    assert out is not None and "Deleted" in out
+    assert len(_deletes(store)) == 1
+
+
+def test_deterministic_parse_runs_delete_alt_phrasing():
+    store = _store([{"id": "c1", "name": "Misc", "user_id": "u1"}], transactions=[])
+    out = chat_service.try_action("remove category Misc", "u1", _FakeDB(store))
+    assert out is not None and "Deleted" in out
+    assert len(_deletes(store)) == 1
+
+
+def test_delete_parser_ignores_non_category_command():
+    # "remove" without the word "category" must not trigger a delete.
+    store = _store([{"id": "c1", "name": "Misc", "user_id": "u1"}], transactions=[])
+    out = chat_service.try_action("remove my food spending from the total", "u1", _FakeDB(store))
+    assert out is None
+    assert _deletes(store) == []
