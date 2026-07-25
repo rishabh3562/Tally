@@ -113,13 +113,13 @@ export default function ChatPage() {
               }`}
             >
               <div
-                className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                className={`px-4 py-2 rounded-lg ${
                   message.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-900"
+                    ? "max-w-xs lg:max-w-md bg-blue-600 text-white"
+                    : "max-w-md lg:max-w-2xl bg-gray-100 text-gray-900"
                 }`}
               >
-                <p className="text-sm">{message.content}</p>
+                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                 <p
                   className={`text-xs mt-1 ${
                     message.role === "user"
@@ -154,7 +154,7 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask a question about your finances..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             disabled={isLoading}
           />
           <button

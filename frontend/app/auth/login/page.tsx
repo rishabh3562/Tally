@@ -230,7 +230,7 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               disabled={loading}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 transition"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 transition"
             />
             {email && !isEmailValid && (
               <p className="mt-1 text-xs text-red-600">Invalid email format</p>
@@ -246,7 +246,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder={isLoginMode ? "••••••••" : "At least 8 characters"}
               disabled={loading}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 transition"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 transition"
             />
             {password && !isPasswordValid && (
               <p className="mt-1 text-xs text-red-600">Password must be at least 8 characters</p>
@@ -265,7 +265,7 @@ export default function LoginPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm password"
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 transition"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 transition"
               />
               {confirmPassword && !passwordsMatch && (
                 <p className="mt-1 text-xs text-red-600">Passwords do not match</p>
