@@ -99,6 +99,28 @@ def test_comparison_classified_as_comparison():
     )
 
 
+def test_comparison_on_empty_periods_says_so():
+    # Data only in April; asking about this/last month (empty) must not say
+    # "Rs 0, same in both" — it should say there's no data for those periods.
+    db = _DateDB([
+        {"amount": 500, "date": "2026-04-10", "raw_merchant": "A", "categories": None},
+    ])
+    out = cs.answer_question("did I spend more this month than last month", "u1", db)
+    assert "Rs 0" not in out
+    assert "no transactions" in out.lower()
+
+
+def test_comparison_one_empty_period_reports_the_other():
+    db = _DateDB([
+        {"amount": 300, "date": "2026-06-10", "raw_merchant": "A", "categories": None},
+    ])
+    # June has data, July doesn't (today defaults to real 'today' in the handler,
+    # but June vs July with only June data exercises the one-empty branch).
+    out = cs.answer_question("compare June and July", "u1", db)
+    assert "Rs 300" in out
+    assert "no transactions" in out.lower()
+
+
 def test_amount_threshold_is_not_hijacked_as_comparison():
     # "more than 500" is an amount, not two periods — must stay category-aware.
     assert cs.classify_intent("did I spend more than 500 on food") == (

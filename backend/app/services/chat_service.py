@@ -260,11 +260,24 @@ def _answer_comparison(db: Client, user_id: str, question: str) -> str:
             _period_label(start, end),
         )
     (a_start, a_end), (b_start, b_end) = parsed
-    a_spend = sum(float(t["amount"]) for t in _spend_only(
-        _fetch_transactions(db, user_id, a_start, a_end)))
-    b_spend = sum(float(t["amount"]) for t in _spend_only(
-        _fetch_transactions(db, user_id, b_start, b_end)))
+    a_txns = _fetch_transactions(db, user_id, a_start, a_end)
+    b_txns = _fetch_transactions(db, user_id, b_start, b_end)
+    a_spend = sum(float(t["amount"]) for t in _spend_only(a_txns))
+    b_spend = sum(float(t["amount"]) for t in _spend_only(b_txns))
     a_label, b_label = _period_label(a_start, a_end), _period_label(b_start, b_end)
+
+    # Empty periods: say so plainly rather than "Rs 0, same in both", which reads
+    # as broken when the user simply has no data imported for those dates.
+    if not a_txns and not b_txns:
+        return (
+            f"I have no transactions for {a_label} or {b_label} — those periods "
+            "may be outside your imported statements."
+        )
+    if not a_txns:
+        return f"No transactions for {a_label}. {b_label}: you spent {_rupees(b_spend)}."
+    if not b_txns:
+        return f"{a_label}: you spent {_rupees(a_spend)}. No transactions for {b_label}."
+
     diff = a_spend - b_spend
     if diff > 0:
         verdict = f"{_rupees(diff)} more in the first"
