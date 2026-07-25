@@ -265,6 +265,8 @@ export default function TransactionsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<string | null>(null);
   const [clubError, setClubError] = useState<string | null>(null);
+  const [clubModalOpen, setClubModalOpen] = useState(false);
+  const [clubName, setClubName] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -333,6 +335,7 @@ export default function TransactionsPage() {
       queryClient.invalidateQueries({ queryKey: ["groups"] });
       setSelected(new Set());
       setClubError(null);
+      setClubModalOpen(false);
       setBanner(`Grouped ${group.count} transactions into “${group.name}”.`);
     },
     onError: (err: any) => {
@@ -342,12 +345,17 @@ export default function TransactionsPage() {
   });
 
   const handleClub = () => {
-    const ids = Array.from(selected);
-    if (ids.length === 0) return;
-    const name = window.prompt(`Name this group of ${ids.length} transactions:`);
-    if (!name || !name.trim()) return;
+    if (selected.size === 0) return;
+    setClubName("");
     setClubError(null);
-    clubMutation.mutate({ name: name.trim(), ids });
+    setClubModalOpen(true);
+  };
+
+  const confirmClub = () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !clubName.trim()) return;
+    setClubError(null);
+    clubMutation.mutate({ name: clubName.trim(), ids });
   };
 
   const selectedCount = selected.size;
@@ -380,6 +388,54 @@ export default function TransactionsPage() {
       </div>
 
       {bannerNode}
+
+      {/* Name-a-group modal (replaces window.prompt) */}
+      {clubModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !clubMutation.isPending && setClubModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Name this group</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Clubbing {selectedCount} transaction{selectedCount === 1 ? "" : "s"} into
+              one group.
+            </p>
+            <input
+              autoFocus
+              type="text"
+              value={clubName}
+              onChange={(e) => setClubName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmClub();
+                if (e.key === "Escape") setClubModalOpen(false);
+              }}
+              placeholder="e.g. Goa trip, October rent…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 mb-4"
+            />
+            {clubError && <p className="text-sm text-red-600 mb-3">{clubError}</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setClubModalOpen(false)}
+                disabled={clubMutation.isPending}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmClub}
+                disabled={!clubName.trim() || clubMutation.isPending}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50"
+              >
+                {clubMutation.isPending ? "Clubbing…" : "Create group"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-6 mb-6 space-y-4">
