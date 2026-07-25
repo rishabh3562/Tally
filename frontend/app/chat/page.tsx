@@ -2,13 +2,14 @@
 
 import { useChat } from "@/hooks/useChat";
 import { useState } from "react";
+import Link from "next/link";
 import { Send, MessageSquare } from "lucide-react";
 
 const EXAMPLE_PROMPTS = [
   "How much did I spend on food last month?",
   "Which merchants did I spend the most at?",
-  "Did I spend more this month than last month?",
-  "Find my Amazon purchases",
+  "Put all my Amazon purchases under Shopping",
+  "Create a category called Rent",
 ];
 
 export default function ChatPage() {
@@ -31,11 +32,20 @@ export default function ChatPage() {
 
   return (
     <div className="max-w-4xl mx-auto h-full flex flex-col">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900">Ask About Your Finances</h1>
-        <p className="text-gray-600 mt-2">
-          Ask questions about your spending, categories, and financial patterns
-        </p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900">Ask About Your Finances</h1>
+          <p className="text-gray-600 mt-2">
+            Ask about your spending — or tell me to categorize merchants and create
+            categories, and I&apos;ll do it.
+          </p>
+        </div>
+        <Link
+          href="/chat/traces"
+          className="text-sm text-gray-500 hover:text-gray-700 font-medium whitespace-nowrap mt-2"
+        >
+          Traces →
+        </Link>
       </div>
 
       {/* Messages */}

@@ -255,6 +255,27 @@ export interface TriageResponse {
   total_amount: number;
 }
 
+// Chat observability (GET /api/chat/traces)
+export interface ChatTraceStep {
+  tool: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args: Record<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: any;
+}
+
+export interface ChatTrace {
+  id: string;
+  created_at: string;
+  question: string;
+  steps: ChatTraceStep[] | null;
+  answer: string;
+  source: 'agent' | 'deterministic' | 'error-fallback';
+  action_taken: boolean;
+  error: string | null;
+  duration_ms: number | null;
+}
+
 // Bulk AI recategorization (POST /api/recategorize)
 export interface RecategorizeResponse {
   status: string;

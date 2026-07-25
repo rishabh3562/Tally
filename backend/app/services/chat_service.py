@@ -13,6 +13,7 @@ from __future__ import annotations
 import calendar
 import logging
 import re
+import time
 from collections import defaultdict
 from datetime import date, timedelta
 from enum import Enum
@@ -302,6 +303,30 @@ def _sse_pack(text: str):
         yield f"data: {token} \n\n"
 
 
+def _record_trace(
+    db: Client, user_id: str, question: str, steps: list[dict[str, Any]],
+    answer: str, source: str, error: str | None, duration_ms: int,
+) -> None:
+    """Persist one chat turn to ``chat_traces`` for observability. Best-effort:
+    tracing must never break the chat, so failures are swallowed (logged)."""
+    action_taken = any(
+        isinstance(s.get("result"), dict) and "action" in s["result"] for s in steps
+    )
+    try:
+        db.table("chat_traces").insert({
+            "user_id": user_id,
+            "question": question,
+            "steps": steps,
+            "answer": answer,
+            "source": source,
+            "action_taken": action_taken,
+            "error": error,
+            "duration_ms": duration_ms,
+        }).execute()
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("failed to record chat trace: %s", e)
+
+
 async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     """Answer a question: try the agentic path, fall back to the deterministic one.
 
@@ -309,19 +334,33 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     user's real data. If no LLM is configured or the loop can't produce an answer,
     we fall back to the keyword-based deterministic ``answer_question`` (optionally
     rephrased) so the feature never regresses to an error.
+
+    Every turn is recorded to ``chat_traces`` (question, tool steps, answer, how it
+    was produced) so we can inspect *why* the chat said what it did.
     """
     # Imported lazily to avoid a circular import (chat_tools imports from here).
     from app.services import chat_agent
 
+    steps: list[dict[str, Any]] = []
+    source = "agent"
+    error: str | None = None
+    started = time.monotonic()
     try:
-        return await chat_agent.run_agent(question, user_id, db)
+        answer = await chat_agent.run_agent(question, user_id, db, trace=steps)
     except chat_agent.AgentUnavailable as e:
         logger.info("chat agent unavailable, using deterministic path: %s", e)
+        source, error = "deterministic", str(e)
+        answer = await rephrase(question, answer_question(question, user_id, db))
     except Exception as e:
         logger.warning("chat agent errored, using deterministic path: %s", e)
+        source, error = "error-fallback", str(e)
+        answer = await rephrase(question, answer_question(question, user_id, db))
 
-    deterministic = answer_question(question, user_id, db)
-    return await rephrase(question, deterministic)
+    _record_trace(
+        db, user_id, question, steps, answer, source, error,
+        int((time.monotonic() - started) * 1000),
+    )
+    return answer
 
 
 async def stream_chat_response(question: str, user_id: str, db: Client):

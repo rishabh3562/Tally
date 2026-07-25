@@ -199,12 +199,16 @@ def _run_tool(name: str, args: dict[str, Any], question: str, user_id: str, db: 
 
 
 async def run_agent(
-    question: str, user_id: str, db: Client, max_steps: int = DEFAULT_MAX_STEPS
+    question: str, user_id: str, db: Client, max_steps: int = DEFAULT_MAX_STEPS,
+    trace: list[dict[str, Any]] | None = None,
 ) -> str:
     """Answer ``question`` by letting the model drive tool calls over real data.
 
     Raises ``AgentUnavailable`` when no LLM is configured or the loop produced no
     usable data, so the caller can fall back to the deterministic path.
+
+    If ``trace`` is provided, each executed tool step (tool, args, result) is
+    appended to it for observability — the caller persists it to ``chat_traces``.
     """
     if not llm_client.is_available():
         raise AgentUnavailable("no LLM provider configured")
@@ -240,7 +244,10 @@ async def run_agent(
         if action == "call_tool":
             name = str(decision.get("tool", ""))
             result = _run_tool(name, decision.get("args") or {}, question, user_id, db)
-            transcript.append({"tool": name, "args": decision.get("args") or {}, "result": result})
+            step = {"tool": name, "args": decision.get("args") or {}, "result": result}
+            transcript.append(step)
+            if trace is not None:
+                trace.append(step)
             continue
 
         break  # unrecognised action
