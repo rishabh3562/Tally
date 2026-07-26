@@ -49,7 +49,7 @@ export default function DashboardPage() {
     },
   });
 
-  const { nameById, rootNameById } = useCategories();
+  const { nameById, rootNameById, iconByName } = useCategories();
 
   const { data: triageData } = useQuery({
     queryKey: ["triage"],
@@ -354,7 +354,9 @@ export default function DashboardPage() {
             <div>
               <p className="text-gray-500 text-sm font-medium">Top Category</p>
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                {topCategory?.name || "—"}
+                {topCategory
+                  ? `${iconByName.get(topCategory.name) ? `${iconByName.get(topCategory.name)} ` : ""}${topCategory.name}`
+                  : "—"}
               </p>
               {topCategory && (
                 <p className="text-sm text-gray-500 mt-1">
