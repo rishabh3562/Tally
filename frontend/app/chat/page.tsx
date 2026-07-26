@@ -141,7 +141,7 @@ export default function ChatPage() {
                 </div>
                 <p className="mt-3 text-xs text-gray-500 leading-relaxed">
                   I can also rename a category, set its emoji (&ldquo;set the icon for Rent
-                  to 🏠&rdquo;), or delete an empty one — just tell me.
+                  to 🏠&rdquo;), merge two, or delete an empty one — just tell me.
                 </p>
               </div>
             </div>
