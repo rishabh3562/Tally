@@ -9,9 +9,10 @@ import { Send, Search, Wand2 } from "lucide-react";
 // PERFORMS changes on your data — the "tell it and it does it" (Palantir) idea.
 const ASK_PROMPTS = [
   "How much did I spend on food last month?",
-  "Which merchants did I spend the most at?",
   "What are my recurring payments?",
-  "Did I spend more this month than last month?",
+  "What jumped this month?",
+  "What's my average monthly spend?",
+  "Which merchants did I spend the most at?",
 ];
 const DO_PROMPTS = [
   "Put all my Amazon purchases under Shopping",
