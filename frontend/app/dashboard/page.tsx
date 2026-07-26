@@ -7,7 +7,7 @@ import Link from "next/link";
 import { TrendingDown, Wallet, DollarSign, Banknote, Plus, ArrowRight, ListChecks } from "lucide-react";
 import { useCategories } from "@/hooks/useCategories";
 import { formatINR } from "@/lib/format";
-import type { TriageResponse } from "@/types";
+import type { TriageResponse, MoversResponse, RecurringResponse } from "@/types";
 
 const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -58,6 +58,20 @@ export default function DashboardPage() {
       return res.data as TriageResponse;
     },
   });
+
+  // At-a-glance insights, surfaced on the landing page (reuse the tested
+  // endpoints). Best-effort — the strip just hides if these don't load.
+  const { data: moversData } = useQuery<MoversResponse>({
+    queryKey: ["movers"],
+    queryFn: async () => (await apiClient.get("/api/insights/movers")).data,
+    staleTime: 5 * 60_000,
+  });
+  const { data: recurringData } = useQuery<RecurringResponse>({
+    queryKey: ["recurring"],
+    queryFn: async () => (await apiClient.get("/api/insights/recurring")).data,
+    staleTime: 5 * 60_000,
+  });
+  const topMover = (moversData?.movers ?? []).find((m) => m.delta > 0) ?? null;
 
   const transactions = transactionsData?.data || [];
   const accounts = accountsData || [];
@@ -206,6 +220,44 @@ export default function DashboardPage() {
             </p>
           )}
         </section>
+      )}
+
+      {/* This month at a glance — surfaces the insights that otherwise live only
+          on the Insights page, on the landing screen. */}
+      {(topMover || (recurringData?.count ?? 0) > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {topMover && (
+            <Link
+              href="/insights"
+              className="flex items-center gap-3 bg-white rounded-lg shadow-sm border border-gray-100 p-4 hover:shadow-md transition"
+            >
+              <TrendingDown className="w-8 h-8 text-red-500 shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Biggest jump this month</p>
+                <p className="font-semibold text-gray-900">
+                  {topMover.category} <span className="text-red-600">+{inr(topMover.delta)}</span>
+                </p>
+              </div>
+            </Link>
+          )}
+          {(recurringData?.count ?? 0) > 0 && (
+            <Link
+              href="/insights"
+              className="flex items-center gap-3 bg-white rounded-lg shadow-sm border border-gray-100 p-4 hover:shadow-md transition"
+            >
+              <Banknote className="w-8 h-8 text-indigo-500 shrink-0" />
+              <div>
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Recurring / subscriptions</p>
+                <p className="font-semibold text-gray-900">
+                  {inr(recurringData!.monthly_total)}/mo{" "}
+                  <span className="text-gray-500 font-normal">
+                    across {recurringData!.count}
+                  </span>
+                </p>
+              </div>
+            </Link>
+          )}
+        </div>
       )}
 
       {/* Uncategorized nudge — the core value loop */}
