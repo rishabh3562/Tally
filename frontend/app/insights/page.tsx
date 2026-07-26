@@ -9,6 +9,7 @@ import type {
   AIInsights,
   ContributionsResponse,
   InsightsSummary,
+  MoversResponse,
   RecategorizeResponse,
   RecurringResponse,
 } from "@/types";
@@ -120,6 +121,18 @@ export default function InsightsPage() {
     staleTime: 5 * 60_000,
   });
   const recurringItems = recurring?.data ?? [];
+
+  const { data: movers } = useQuery<MoversResponse>({
+    queryKey: ["movers"],
+    queryFn: async () => {
+      const response = await apiClient.get("/api/insights/movers");
+      return response.data;
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60_000,
+  });
+  // Only the genuine increases, biggest first, capped to keep the card scannable.
+  const risers = (movers?.movers ?? []).filter((m) => m.delta > 0).slice(0, 5);
 
   // Promote a detected split-expense cluster into a tracked case-study event
   // (the #8 → #9 link). Includes the linked spend plus every repayment.
@@ -355,6 +368,36 @@ export default function InsightsPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* Month-over-month movers — what went up */}
+      {risers.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center gap-3 mb-1">
+            <TrendingUp className="w-6 h-6 text-red-500" />
+            <h2 className="text-lg font-bold text-gray-900">What went up</h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Biggest category increases
+            {movers?.prev && movers?.latest
+              ? ` from ${monthLabel(movers.prev)} to ${monthLabel(movers.latest)}`
+              : ""}
+            .
+          </p>
+          <div className="divide-y">
+            {risers.map((m) => (
+              <div key={m.category} className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{m.category}</p>
+                  <p className="text-xs text-gray-500">
+                    ₹{inr(m.from_amount)} → ₹{inr(m.to_amount)}
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-red-600">+₹{inr(m.delta)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Recurring payments / subscriptions */}

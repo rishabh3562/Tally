@@ -19,6 +19,7 @@ from app.core.database import get_supabase
 from app.services import llm_client
 from app.services.contributions import detect_contributions
 from app.services.recurring import detect_recurring
+from app.services.movers import compute_category_movers
 from app.services.merchant import canonical_merchant
 
 logger = logging.getLogger("tally.insights")
@@ -43,6 +44,22 @@ async def get_contributions(
             "count": len(clusters),
             "total_recovered": round(sum(c["total_received"] for c in clusters), 2),
         }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@router.get("/movers")
+async def get_movers(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Categories whose spend rose/fell the most between the two most recent
+    months (biggest increase first). Empty movers until there are two months."""
+    try:
+        result = compute_category_movers(_fetch_transactions(db, user_id, None, None))
+        return result or {"latest": None, "prev": None, "movers": []}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)

@@ -330,6 +330,20 @@ export interface RecurringResponse {
   monthly_total: number;
 }
 
+// Month-over-month category movers (GET /api/insights/movers)
+export interface CategoryMover {
+  category: string;
+  from_amount: number;
+  to_amount: number;
+  delta: number;
+}
+
+export interface MoversResponse {
+  latest: string | null;
+  prev: string | null;
+  movers: CategoryMover[];
+}
+
 // Bulk AI recategorization (POST /api/recategorize)
 export interface RecategorizeResponse {
   status: string;

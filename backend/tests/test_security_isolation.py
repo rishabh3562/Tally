@@ -161,6 +161,23 @@ async def test_groups_list_never_leaks_other_user():
     assert {g["id"] for g in out} == {"g-a"}   # B's group invisible to A
 
 
+async def test_movers_never_leaks_other_user():
+    rows = [
+        {"id": "a1", "user_id": "A", "is_transfer": False, "amount": 1000,
+         "date": "2026-02-05", "categories": {"name": "Food"}},
+        {"id": "a2", "user_id": "A", "is_transfer": False, "amount": 3000,
+         "date": "2026-03-05", "categories": {"name": "Food"}},
+        {"id": "b1", "user_id": "B", "is_transfer": False, "amount": 9999,
+         "date": "2026-02-05", "categories": {"name": "Travel"}},
+        {"id": "b2", "user_id": "B", "is_transfer": False, "amount": 50000,
+         "date": "2026-03-05", "categories": {"name": "Travel"}},
+    ]
+    db = _FakeDB({"transactions": rows})
+    out = await insights.get_movers(user_id="A", db=db)
+    cats = {m["category"] for m in out["movers"]}
+    assert cats == {"Food"}   # B's Travel never appears for A
+
+
 async def test_recurring_never_leaks_other_user():
     # A has a monthly subscription; B has their own. A must only see A's.
     rows = (
