@@ -498,6 +498,53 @@ def get_recurring_payments(
     }
 
 
+def get_category_movers(
+    db: Client, user_id: str, *, question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Read tool: categories whose spend rose/fell most between the two most
+    recent months (biggest increase first)."""
+    from app.services.movers import compute_category_movers
+
+    rows = (
+        db.table("transactions").select("amount,date,categories(name)")
+        .eq("user_id", user_id).eq("is_transfer", False)
+        .execute().data
+        or []
+    )
+    return compute_category_movers(rows) or {"latest": None, "prev": None, "movers": []}
+
+
+def get_average_monthly_spend(
+    db: Client, user_id: str, *, question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Read tool: average spend per month across all history, plus the peak month."""
+    from collections import defaultdict
+
+    rows = (
+        db.table("transactions").select("amount,date")
+        .eq("user_id", user_id).eq("is_transfer", False)
+        .execute().data
+        or []
+    )
+    monthly: dict[str, float] = defaultdict(float)
+    for r in rows:
+        amt = float(r.get("amount") or 0)
+        if amt <= 0:
+            continue
+        ym = str(r.get("date") or "")[:7]
+        if len(ym) == 7:
+            monthly[ym] += amt
+    if not monthly:
+        return {"average_monthly": 0.0, "months": 0}
+    hi_month, hi_val = max(monthly.items(), key=lambda kv: kv[1])
+    return {
+        "average_monthly": round(sum(monthly.values()) / len(monthly), 2),
+        "months": len(monthly),
+        "peak_month": hi_month,
+        "peak_amount": round(hi_val, 2),
+    }
+
+
 # --- registry & schema (fed to the model) -----------------------------------
 
 TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -509,6 +556,8 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "list_events": list_events,
     "compare_periods": compare_periods,
     "get_recurring_payments": get_recurring_payments,
+    "get_category_movers": get_category_movers,
+    "get_average_monthly_spend": get_average_monthly_spend,
 }
 
 # Mutating tools — separate registry so the read-only deterministic fallback and
@@ -533,6 +582,8 @@ TOOL_SPECS = """\
 - list_events(): list the user's trips/events with totals.
 - compare_periods(period_a_start, period_a_end, period_b_start, period_b_end): compare two date ranges.
 - get_recurring_payments(): merchants charged on a regular monthly cadence (subscriptions, rent, memberships) + monthly total.
+- get_category_movers(): categories whose spend rose/fell the most between the two most recent months.
+- get_average_monthly_spend(): average spend per month across all history + the peak month.
 Dates are YYYY-MM-DD. Fields marked ? are optional; omit them if the user gave no range."""
 
 # Action tools shown to the model only when the user asks to CHANGE something.
