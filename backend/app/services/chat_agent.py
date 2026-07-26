@@ -126,6 +126,12 @@ def _action_confirmation(transcript: list[dict[str, Any]]) -> str | None:
             return f"Set {res.get('icon')} as the icon for “{res.get('name')}”."
         if action == "delete_category":
             return f"Deleted the category “{res.get('name')}”."
+        if action == "merge_categories":
+            n = int(res.get("moved", 0) or 0)
+            return (
+                f"Merged “{res.get('source')}” into “{res.get('target')}” — moved "
+                f"{n} transaction{'s' if n != 1 else ''}."
+            )
     return None
 
 

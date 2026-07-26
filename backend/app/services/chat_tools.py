@@ -434,6 +434,49 @@ def delete_category(
     return {"action": "delete_category", "name": owned[0]["name"]}
 
 
+def merge_categories(
+    db: Client, user_id: str, *, source: str = "", target: str = "",
+    question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Move every transaction from the user's OWN `source` category into `target`,
+    then delete the now-empty source. No transaction is lost — only the source
+    LABEL is removed. The source must be user-owned (can't delete a built-in);
+    the target can be any visible category. Scoped to the caller's user_id."""
+    source = (source or "").strip()
+    target = (target or "").strip()
+    if not source or not target:
+        return {"error": "tell me which category to merge and what to merge it into"}
+    if source.lower() == target.lower():
+        return {"error": f"“{source}” and “{target}” are the same category"}
+
+    src = (
+        db.table("categories").select("id,name")
+        .eq("user_id", user_id).ilike("name", source).execute().data
+        or []
+    )
+    visible = _visible_categories(db, user_id)
+    if not src:
+        if any(c["name"].lower() == source.lower() for c in visible):
+            return {"error": f"“{source}” is a built-in category and can't be merged away"}
+        return {"error": f"you don't have a category called “{source}”"}
+    tgt = next((c for c in visible if c["name"].lower() == target.lower()), None)
+    if not tgt:
+        return {"error": f"there's no category called “{target}” to merge into"}
+
+    src_id, tgt_id = src[0]["id"], tgt["id"]
+    moved = (
+        db.table("transactions").update({"category_id": tgt_id})
+        .eq("user_id", user_id).eq("category_id", src_id).execute().data
+        or []
+    )
+    db.table("categories").delete().eq("id", src_id).eq("user_id", user_id).execute()
+    return {
+        "action": "merge_categories",
+        "source": src[0]["name"], "target": tgt["name"],
+        "moved": len(moved),
+    }
+
+
 def get_recurring_payments(
     db: Client, user_id: str, *, question: str = "", **_: Any,
 ) -> dict[str, Any]:
@@ -476,6 +519,7 @@ ACTION_TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "rename_category": rename_category,
     "set_category_icon": set_category_icon,
     "delete_category": delete_category,
+    "merge_categories": merge_categories,
 }
 
 # Human-readable schema injected into the selection prompt. Kept terse on purpose:
@@ -497,4 +541,5 @@ ACTION_SPECS = """\
 - create_category(name): create a new custom category (e.g. 'Rent'). Use this first if the category the user wants does not exist, then call categorize_merchant.
 - rename_category(old_name, new_name): rename one of the user's OWN custom categories. Cannot rename built-in categories.
 - set_category_icon(name, icon): set the emoji icon on one of the user's OWN custom categories.
-- delete_category(name): delete one of the user's OWN custom categories, only if it has no transactions."""
+- delete_category(name): delete one of the user's OWN custom categories, only if it has no transactions.
+- merge_categories(source, target): move every transaction from the user's OWN `source` category into `target`, then delete the empty source."""

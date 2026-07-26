@@ -245,3 +245,66 @@ def test_delete_parser_ignores_non_category_command():
     out = chat_service.try_action("remove my food spending from the total", "u1", _FakeDB(store))
     assert out is None
     assert _deletes(store) == []
+
+
+# --- merge_categories -------------------------------------------------------
+
+def _two_cats():
+    return [
+        {"id": "c-src", "name": "Rnt", "user_id": "u1"},
+        {"id": "c-tgt", "name": "Rent", "user_id": "u1"},
+    ]
+
+
+def test_merge_moves_transactions_and_deletes_source():
+    store = _store(_two_cats(), transactions=[])
+    out = chat_tools.merge_categories(_FakeDB(store), "u1", source="Rnt", target="Rent")
+    assert out["action"] == "merge_categories"
+    assert out["source"] == "Rnt" and out["target"] == "Rent"
+    # transactions reassigned to the target, scoped by user_id AND old category.
+    tx_updates = [l for l in store["log"] if l["table"] == "transactions" and l["op"] == "update"]
+    assert len(tx_updates) == 1
+    assert tx_updates[0]["payload"] == {"category_id": "c-tgt"}
+    assert tx_updates[0]["eqs"] == {"user_id": "u1", "category_id": "c-src"}
+    # then the empty source category is deleted (scoped).
+    cat_deletes = [l for l in store["log"] if l["table"] == "categories" and l["op"] == "delete"]
+    assert len(cat_deletes) == 1
+    assert cat_deletes[0]["eqs"] == {"id": "c-src", "user_id": "u1"}
+
+
+def test_cannot_merge_away_a_system_category():
+    store = _store(
+        [{"id": "sys", "name": "Food", "user_id": None},
+         {"id": "c-tgt", "name": "Rent", "user_id": "u1"}]
+    )
+    out = chat_tools.merge_categories(_FakeDB(store), "u1", source="Food", target="Rent")
+    assert "error" in out and "built-in" in out["error"]
+    assert _deletes(store) == [] and _updates(store) == []   # nothing changed
+
+
+def test_merge_same_category_rejected():
+    store = _store(_two_cats())
+    out = chat_tools.merge_categories(_FakeDB(store), "u1", source="Rent", target="rent")
+    assert "error" in out and "same" in out["error"]
+    assert _deletes(store) == []
+
+
+def test_merge_unknown_target_errors():
+    store = _store([{"id": "c-src", "name": "Rnt", "user_id": "u1"}])
+    out = chat_tools.merge_categories(_FakeDB(store), "u1", source="Rnt", target="Nope")
+    assert "error" in out and "merge into" in out["error"]
+    assert _deletes(store) == []
+
+
+def test_deterministic_parse_runs_merge():
+    store = _store(_two_cats(), transactions=[])
+    out = chat_service.try_action("merge Rnt into Rent", "u1", _FakeDB(store))
+    assert out is not None and "Merged" in out and "Rent" in out
+    assert len([l for l in store["log"] if l["op"] == "delete"]) == 1
+
+
+def test_merge_parser_ignores_non_command():
+    store = _store(_two_cats(), transactions=[])
+    out = chat_service.try_action("how much did I spend on rent", "u1", _FakeDB(store))
+    assert out is None
+    assert _deletes(store) == []

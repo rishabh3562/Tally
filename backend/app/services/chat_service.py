@@ -660,6 +660,13 @@ _DELETE_CAT_RE2 = re.compile(
     r"(?:called\s+|named\s+)?(?P<name>.+?)[.!?]*\s*$",
     re.IGNORECASE,
 )
+# "merge Rnt into Rent" / "merge the Misc category into Other". Gated on both
+# "merge" and "into", so it can't swallow other commands.
+_MERGE_CAT_RE = re.compile(
+    r"\bmerge\s+(?:the\s+|my\s+)?(?P<source>.+?)\s+(?:categor(?:y|ies)\s+)?"
+    r"into\s+(?P<target>.+?)[.!?]*\s*$",
+    re.IGNORECASE,
+)
 
 
 def try_action(
@@ -701,6 +708,13 @@ def try_action(
         icon = m.group("icon").strip()
         res = chat_tools.set_category_icon(db, user_id, name=name, icon=icon)
         return _run("set_category_icon", {"name": name, "icon": icon}, res)
+
+    m = _MERGE_CAT_RE.search(q)
+    if m:
+        source = m.group("source").strip().strip("\"'")
+        target = m.group("target").strip().strip("\"'")
+        res = chat_tools.merge_categories(db, user_id, source=source, target=target)
+        return _run("merge_categories", {"source": source, "target": target}, res)
 
     m = _DELETE_CAT_RE.search(q) or _DELETE_CAT_RE2.search(q)
     if m:
