@@ -27,6 +27,13 @@ export const useCategories = () => {
     return m;
   }, [categories]);
 
+  // Category NAME -> emoji icon, for prefixing category names in breakdowns.
+  const iconByName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of categories) if (c.icon) m.set(c.name, c.icon);
+    return m;
+  }, [categories]);
+
   // Resolve a category id to its TOP-LEVEL ancestor name, so sub-category spend
   // (Food › Pizza) rolls up into the parent slice on dashboards/insights instead
   // of fragmenting the breakdown. Guards against cycles.
@@ -59,5 +66,5 @@ export const useCategories = () => {
     },
   });
 
-  return { categories, nameById, rootNameById, isLoading, error, createCategory };
+  return { categories, nameById, iconByName, rootNameById, isLoading, error, createCategory };
 };

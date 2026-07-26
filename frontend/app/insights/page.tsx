@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
 import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash, Wand2, Users } from "lucide-react";
+import { useCategories } from "@/hooks/useCategories";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type {
   AIInsights,
@@ -30,6 +31,7 @@ export default function InsightsPage() {
   const [recatError, setRecatError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
+  const { iconByName } = useCategories();
 
   const params: Record<string, string> = {};
   if (start) params.start = start;
@@ -290,6 +292,7 @@ export default function InsightsPage() {
                     <div key={c.name}>
                       <div className="flex items-center justify-between text-sm mb-1">
                         <span className="text-gray-700">
+                          {iconByName.get(c.name) ? `${iconByName.get(c.name)} ` : ""}
                           {c.name}{" "}
                           <span className="text-gray-400">({c.count})</span>
                         </span>
