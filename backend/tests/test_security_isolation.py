@@ -161,6 +161,20 @@ async def test_groups_list_never_leaks_other_user():
     assert {g["id"] for g in out} == {"g-a"}   # B's group invisible to A
 
 
+def test_export_csv_is_scoped_to_caller():
+    rows = [
+        {"user_id": "A", "date": "2026-01-01", "raw_merchant": "AmazonA",
+         "amount": 100, "categories": {"name": "Shopping"}},
+        {"user_id": "B", "date": "2026-01-01", "raw_merchant": "FlipkartB",
+         "amount": 200, "categories": None},
+    ]
+    db = _FakeDB({"transactions": rows})
+    csv_text = transactions._build_transactions_csv(db, "A")
+    assert "AmazonA" in csv_text and "Shopping" in csv_text
+    assert "FlipkartB" not in csv_text        # B's row never exported to A
+    assert csv_text.splitlines()[0] == "Date,Merchant,Amount,Category"
+
+
 async def test_movers_never_leaks_other_user():
     rows = [
         {"id": "a1", "user_id": "A", "is_transfer": False, "amount": 1000,

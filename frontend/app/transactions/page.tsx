@@ -445,16 +445,37 @@ export default function TransactionsPage() {
     );
   }, [banner, bannerLink]);
 
+  const handleExport = async () => {
+    const res = await apiClient.get("/api/transactions/export", { responseType: "blob" });
+    const url = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "tally-transactions.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-4xl font-bold text-gray-900">Transactions</h1>
-        <Link
-          href="/dashboard"
-          className="text-blue-600 hover:text-blue-700 font-medium"
-        >
-          ← Back to Dashboard
-        </Link>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={handleExport}
+            className="text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Export CSV
+          </button>
+          <Link
+            href="/dashboard"
+            className="text-blue-600 hover:text-blue-700 font-medium"
+          >
+            ← Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       {bannerNode}

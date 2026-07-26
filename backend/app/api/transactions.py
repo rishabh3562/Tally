@@ -1,7 +1,10 @@
 """Transactions API routes."""
 
+import csv
+import io
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from datetime import date
 from supabase import Client
 from app.core.database import get_supabase
@@ -60,6 +63,50 @@ async def list_transactions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
+        )
+
+
+def _build_transactions_csv(db: Client, user_id: str) -> str:
+    """Render the user's transactions as CSV text (date, merchant, amount,
+    category). Pure/testable; scoped to user_id."""
+    rows = (
+        db.table("transactions")
+        .select("date,raw_merchant,amount,categories(name)")
+        .eq("user_id", user_id)
+        .order("date", desc=True)
+        .execute().data
+        or []
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Date", "Merchant", "Amount", "Category"])
+    for r in rows:
+        cat = r.get("categories")
+        if isinstance(cat, list):
+            cat = cat[0] if cat else None
+        cat_name = cat.get("name") if isinstance(cat, dict) else ""
+        writer.writerow([r.get("date", ""), r.get("raw_merchant", ""),
+                         r.get("amount", ""), cat_name])
+    return buf.getvalue()
+
+
+@router.get("/export")
+async def export_transactions(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Download all of the user's transactions as a CSV report — e.g. to show
+    someone where the money went. Scoped to the caller's user_id."""
+    try:
+        csv_text = _build_transactions_csv(db, user_id)
+        return StreamingResponse(
+            iter([csv_text]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=tally-transactions.csv"},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
 
