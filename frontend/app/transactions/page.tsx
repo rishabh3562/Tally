@@ -264,6 +264,8 @@ export default function TransactionsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [sort, setSort] = useState<"date" | "amount">("date");
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<string | null>(null);
   const [bannerLink, setBannerLink] = useState<{ href: string; label: string }>({
@@ -295,12 +297,25 @@ export default function TransactionsPage() {
     end_date: endDate || undefined,
     merchant: debouncedSearch || undefined,
     category_id: categoryFilter || undefined,
+    sort,
+    order,
   });
   const { categories } = useCategories();
 
   const rows = transactions as TransactionListItem[];
   const totalPages = Math.ceil(total / itemsPerPage);
   const hasFilters = Boolean(startDate || endDate || search || categoryFilter);
+  const toggleSort = (col: "date" | "amount") => {
+    if (sort === col) {
+      setOrder((o) => (o === "desc" ? "asc" : "desc"));
+    } else {
+      setSort(col);
+      setOrder("desc");
+    }
+    setPage(1);
+  };
+  const sortArrow = (col: "date" | "amount") =>
+    sort === col ? (order === "desc" ? " ↓" : " ↑") : "";
   const clearFilters = () => {
     setStartDate("");
     setEndDate("");
@@ -718,13 +733,25 @@ export default function TransactionsPage() {
                 />
               </th>
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                Date
+                <button
+                  type="button"
+                  onClick={() => toggleSort("date")}
+                  className="font-medium text-gray-700 hover:text-gray-900"
+                >
+                  Date{sortArrow("date")}
+                </button>
               </th>
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                 Merchant
               </th>
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                Amount
+                <button
+                  type="button"
+                  onClick={() => toggleSort("amount")}
+                  className="font-medium text-gray-700 hover:text-gray-900"
+                >
+                  Amount{sortArrow("amount")}
+                </button>
               </th>
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                 Category

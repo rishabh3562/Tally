@@ -7,6 +7,8 @@ interface TransactionFilters {
   end_date?: string;
   category_id?: string;
   merchant?: string;
+  sort?: "date" | "amount";
+  order?: "asc" | "desc";
   page?: number;
   limit?: number;
 }

@@ -25,12 +25,14 @@ async def list_transactions(
     end_date: date = Query(None),
     category_id: str = Query(None),
     merchant: str = Query(None),
+    sort: str = Query("date"),
+    order: str = Query("desc"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=1000),
     user_id: str = Depends(get_current_user),
     db: Client = Depends(get_supabase),
 ):
-    """List user's transactions with optional filters."""
+    """List user's transactions with optional filters and sorting."""
     try:
         query = db.table("transactions").select("*").eq("user_id", user_id)
 
@@ -49,9 +51,17 @@ async def list_transactions(
         count_response = query.execute()
         total = len(count_response.data) if count_response.data else 0
 
+        # Sort — whitelist the column so the param can't inject an arbitrary field.
+        sort_col = sort if sort in ("date", "amount") else "date"
+        descending = order != "asc"
+
         # Paginate
         offset = (page - 1) * limit
-        response = query.order("date", desc=True).range(offset, offset + limit - 1).execute()
+        response = (
+            query.order(sort_col, desc=descending)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
 
         return {
             "data": response.data,
