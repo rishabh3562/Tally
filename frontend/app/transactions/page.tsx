@@ -785,7 +785,10 @@ export default function TransactionsPage() {
                     </>
                   ) : (
                     <>
-                      <p className="text-gray-900 font-medium">No transactions yet.</p>
+                      <p className="text-gray-900 font-medium">No transactions yet</p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        Upload a bank or UPI statement and Tally does the rest.
+                      </p>
                       <Link
                         href="/upload"
                         className="mt-3 inline-block text-blue-600 hover:text-blue-700 font-medium"

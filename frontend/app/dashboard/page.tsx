@@ -443,12 +443,19 @@ export default function DashboardPage() {
       </div>
 
       {transactions.length === 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
-          <p className="text-gray-600">No transactions yet. Upload a bank statement to get started.</p>
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-10 text-center">
+          <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-5">
+            <Banknote className="w-7 h-7 text-blue-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900">Welcome to Tally</h2>
+          <p className="text-gray-600 mt-2 max-w-md mx-auto">
+            Upload a bank or UPI statement and Tally parses it automatically to show you exactly where your money goes.
+          </p>
           <Link
             href="/upload"
-            className="inline-block mt-4 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition"
+            className="inline-flex items-center gap-2 mt-6 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition"
           >
+            <Plus className="w-4 h-4" />
             Upload Statement
           </Link>
         </div>
