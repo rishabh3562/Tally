@@ -139,7 +139,9 @@ def test_answer_open_ended_net():
     out = cs._answer_open_ended(txns, "all time")
     assert "Rs 100" in out    # spent
     assert "Rs 30" in out     # received
-    assert "Rs -70" in out    # net (received - spent, consistent with insights.py)
+    # The net is stated in words rather than as a signed figure ("net Rs -70"
+    # made the reader work out the sign).
+    assert "down Rs 70" in out
 
 
 def test_spend_only_excludes_income():

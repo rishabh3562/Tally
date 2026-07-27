@@ -68,6 +68,11 @@ def classify_intent(question: str) -> IntentType:
     if extract_category(question):
         return IntentType.TOTAL_BY_CATEGORY
 
+    # "top categories" / "spending by category" — the word itself is the intent,
+    # even though it isn't one of the category NAMES in _CATEGORY_KEYWORDS.
+    if "categor" in q:
+        return IntentType.TOTAL_BY_CATEGORY
+
     if any(kw in q for kw in ["merchant", "store", "vendor", "shop", "where", "who"]):
         return IntentType.MERCHANT_BREAKDOWN
 
@@ -86,6 +91,23 @@ def extract_category(question: str) -> Optional[str]:
     return None
 
 
+def extract_categories(question: str) -> list[str]:
+    """Every category keyword named, in the order they appear — so "more on food
+    than shopping" can be answered as the comparison it actually is."""
+    q = question.lower()
+    found: list[tuple[int, str]] = []
+    for kw in _CATEGORY_KEYWORDS:
+        m = re.search(rf"\b{re.escape(kw)}\b", q)
+        if m:
+            found.append((m.start(), kw))
+    out: list[str] = []
+    for _, kw in sorted(found):
+        # "groceries" also matches "grocery"; keep one entry per distinct spend area.
+        if not any(kw.startswith(seen) or seen.startswith(kw) for seen in out):
+            out.append(kw)
+    return out
+
+
 def parse_period(question: str, today: Optional[date] = None) -> tuple[Optional[str], Optional[str]]:
     """Parse a date range from the question.
 
@@ -100,6 +122,30 @@ def parse_period(question: str, today: Optional[date] = None) -> tuple[Optional[
     if m:
         n = int(m.group(1))
         return (today - timedelta(days=n)).isoformat(), today.isoformat()
+
+    # "last N weeks/months" — same shape as days, in the other units.
+    m = re.search(r"\b(?:last|past)\s+(\d+)\s+weeks?\b", q)
+    if m:
+        return (today - timedelta(weeks=int(m.group(1)))).isoformat(), today.isoformat()
+    m = re.search(r"\b(?:last|past)\s+(\d+)\s+months?\b", q)
+    if m:
+        return (today - timedelta(days=30 * int(m.group(1)))).isoformat(), today.isoformat()
+
+    if "yesterday" in q:
+        y = today - timedelta(days=1)
+        return y.isoformat(), y.isoformat()
+
+    if "today" in q:
+        return today.isoformat(), today.isoformat()
+
+    # Weeks run Monday–Sunday. "last week" was previously unparsed, which silently
+    # answered ALL TIME for a question about seven days — the worst kind of wrong.
+    this_monday = today - timedelta(days=today.weekday())
+    if "this week" in q:
+        return this_monday.isoformat(), today.isoformat()
+    if "last week" in q or "previous week" in q or "past week" in q:
+        prev_monday = this_monday - timedelta(days=7)
+        return prev_monday.isoformat(), (this_monday - timedelta(days=1)).isoformat()
 
     if "this month" in q:
         start = today.replace(day=1)
@@ -289,6 +335,13 @@ def _rupees(amount: float) -> str:
     return f"Rs {amount:,.0f}"
 
 
+def _wants_share(question: str) -> bool:
+    """The question asks for a proportion, not just an amount."""
+    q = question.lower()
+    return any(w in q for w in ["percent", "percentage", "%", "share of", "proportion",
+                                "what fraction", "how much of my"])
+
+
 def _listing(headline: str, items: list[str], footer: str = "") -> str:
     """A headline, then one item per line, then an optional closing line.
 
@@ -308,10 +361,58 @@ def _share(amount: float, total: float) -> str:
     return f" · {pct}%" if pct >= 1 else ""
 
 
+_COMPARE_WORDS = ["more", "less", "bigger", "higher", "lower", "than", "compare",
+                  "versus", " vs ", "which"]
+
+
+def _try_category_comparison(
+    txns: list[dict], question: str, period: str
+) -> Optional[str]:
+    """"am I spending more on food than shopping" — compare two named categories.
+
+    Returns None unless the question really names two of them AND asks to compare,
+    so ordinary single-category questions are untouched.
+    """
+    q = question.lower()
+    if not any(w in q for w in _COMPARE_WORDS):
+        return None
+    names = extract_categories(question)
+    if len(names) < 2:
+        return None
+    a, b = names[0], names[1]
+    spend = _spend_only(txns)
+
+    def total_for(kw: str) -> tuple[float, int]:
+        rows = [t for t in spend if kw in _category_name(t).lower()]
+        return sum(float(t["amount"]) for t in rows), len(rows)
+
+    a_total, a_n = total_for(a)
+    b_total, b_n = total_for(b)
+    if a_n == 0 and b_n == 0:
+        return None  # neither is a real category here — let the normal path answer
+    diff = abs(a_total - b_total)
+    if a_total > b_total:
+        verdict = f"{a} is higher, by {_rupees(diff)}"
+    elif b_total > a_total:
+        verdict = f"{b} is higher, by {_rupees(diff)}"
+    else:
+        verdict = "they're level"
+    return (
+        f"For {period}: {a} {_rupees(a_total)} ({a_n} "
+        f"transaction{'s' if a_n != 1 else ''}) vs {b} {_rupees(b_total)} "
+        f"({b_n}) — {verdict}."
+    )
+
+
 def _answer_total_by_category(txns: list[dict], question: str, period: str) -> str:
     spend = _spend_only(txns)
     if not spend:
         return f"I found no spending for {period}."
+
+    # Two categories and a comparison word: answer the comparison, not just the first.
+    comparison = _try_category_comparison(txns, question, period)
+    if comparison:
+        return comparison
 
     category = extract_category(question)
     if category:
@@ -319,10 +420,20 @@ def _answer_total_by_category(txns: list[dict], question: str, period: str) -> s
         total = sum(float(t["amount"]) for t in matched)
         if not matched:
             return f"I found no spending tagged '{category}' for {period}."
-        return (
+        answer = (
             f"You spent {_rupees(total)} on {category} across {len(matched)} "
             f"transactions ({period})."
         )
+        # "what percentage of my money goes to food" asks for a share, so give one
+        # (the plain amount alone reads as a non-answer to that question).
+        if _wants_share(question):
+            grand = sum(float(t["amount"]) for t in spend)
+            if grand > 0:
+                answer += (
+                    f" That's {round(total / grand * 100)}% of the "
+                    f"{_rupees(grand)} you spent."
+                )
+        return answer
 
     totals: dict[str, float] = defaultdict(float)
     for t in spend:
@@ -457,6 +568,83 @@ def _is_average_query(question: str) -> bool:
     return any(w in q for w in ["average", "avg", "run rate", "run-rate", "on average"])
 
 
+def _is_capability_query(question: str) -> bool:
+    """"help" / "what can you do" — a request for the menu, not for a figure."""
+    q = question.lower().strip(" ?.!")
+    if q in {"help", "?", "what can you do", "what can i ask", "menu", "commands"}:
+        return True
+    return any(w in q for w in ["what can you do", "what can i ask", "how do i use you",
+                                "what do you know", "who are you", "what are you"])
+
+
+def _answer_capabilities() -> str:
+    """The menu. Cheap to keep honest: every line here is a real handler above."""
+    return _listing(
+        "I answer from your imported statements, and I can change things too. Try:",
+        [
+            "\"how much did I spend on food in May?\" — any category, any period",
+            "\"where did my money go?\" — top categories or merchants",
+            "\"what do I buy most often?\" — your habits",
+            "\"what was my biggest expense?\"",
+            "\"did I spend more this month than last?\"",
+            "\"what jumped this month?\" · \"what's my average monthly spend?\"",
+            "\"how much did I pay Priya?\" — any merchant or person",
+            "\"put all my Amazon purchases under Shopping\" — I'll relabel them",
+            "\"rename Rnt to Rent\" · \"merge Rnt into Rent\" · \"set Rent's icon to 🏠\"",
+        ],
+    )
+
+
+def _is_coverage_query(question: str) -> bool:
+    """Questions about the DATA rather than the money — how much is loaded, since
+    when. Previously answered with an unrelated spend summary."""
+    q = question.lower()
+    return any(w in q for w in [
+        "how many transactions", "how much data", "what data do you have",
+        "when did i start", "how far back", "what period do you have",
+        "what dates", "date range", "how many payments do i have",
+    ])
+
+
+def _answer_coverage(db: Client, user_id: str) -> str:
+    cov = data_coverage(db, user_id)
+    if not cov["first"]:
+        return (
+            "You have no transactions imported yet. Upload a bank or UPI statement "
+            "and I'll show you exactly where your money went."
+        )
+    return (
+        f"I have {cov['count']} transactions, from {_pretty_date(cov['first'])} to "
+        f"{_pretty_date(cov['last'])}. Ask me about anything in that range."
+    )
+
+
+def _is_daily_average_query(question: str) -> bool:
+    """'how much do I spend a day' — the same question in a different unit, which
+    used to be answered with a monthly figure."""
+    q = question.lower()
+    return any(w in q for w in ["per day", "a day", "each day", "daily", "every day"])
+
+
+def _answer_daily_average(db: Client, user_id: str) -> str:
+    """Average spend per day across the days the statements actually cover."""
+    txns = _fetch_transactions(db, user_id, None, None)
+    spend = _spend_only(txns)
+    dates = sorted({str(t.get("date") or "")[:10] for t in spend if t.get("date")})
+    if not dates:
+        return "I don't have any spending yet to work out a daily average."
+    total = sum(float(t["amount"]) for t in spend)
+    try:
+        days = (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days + 1
+    except ValueError:
+        days = len(dates)
+    days = max(days, 1)
+    return (
+        f"You spend about {_rupees(total / days)} a day — {_rupees(total)} over the "
+        f"{days} days from {_pretty_date(dates[0])} to {_pretty_date(dates[-1])}."
+    )
+
+
 def _answer_average(db: Client, user_id: str) -> str:
     """Average monthly spend across the user's whole history, with the peak month."""
     txns = _fetch_transactions(db, user_id, None, None)
@@ -581,10 +769,16 @@ def _answer_open_ended(txns: list[dict], period: str) -> str:
     total_spent = sum(float(t["amount"]) for t in _spend_only(txns))
     total_received = sum(-float(t["amount"]) for t in txns if float(t.get("amount") or 0) < 0)
     net = total_received - total_spent
+    # "net Rs -275,388" makes a reader do the sign in their head; say it in words.
+    verdict = (
+        f"you're down {_rupees(-net)}" if net < 0
+        else f"you're up {_rupees(net)}" if net > 0
+        else "you broke even"
+    )
     return (
         f"For {period}: you spent {_rupees(total_spent)} and received "
-        f"{_rupees(total_received)} across {len(txns)} transactions "
-        f"(net {_rupees(net)})."
+        f"{_rupees(total_received)} across {len(txns)} transactions — "
+        f"{verdict}."
     )
 
 
@@ -664,8 +858,20 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
     if _is_habit_query(question):
         return _answer_habits(db, user_id)
 
+    if _is_capability_query(question):
+        return _answer_capabilities()
+
+    if _is_coverage_query(question):
+        return _answer_coverage(db, user_id)
+
     if _is_average_query(question):
+        # "per day" and "per month" are different questions, same keyword.
+        if _is_daily_average_query(question):
+            return _answer_daily_average(db, user_id)
         return _answer_average(db, user_id)
+
+    if _is_daily_average_query(question) and "spend" in question.lower():
+        return _answer_daily_average(db, user_id)
 
     if _is_change_query(question):
         return _answer_what_jumped(db, user_id)
