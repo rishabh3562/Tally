@@ -54,7 +54,8 @@ function AnswerProvenance({ trace }: { trace: ChatTrace }) {
 }
 
 export default function ChatPage() {
-  const { messages, isLoading, historyLoading, sendMessage, clearConversation } = useChat();
+  const { messages, isLoading, status, historyLoading, sendMessage, clearConversation } =
+    useChat();
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -212,13 +213,20 @@ export default function ChatPage() {
           ))
         )}
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg">
-              <div className="flex space-x-2">
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0.4s" }}></div>
+          <div className="animate-rise flex justify-start">
+            <div className="flex items-center gap-3 rounded-lg bg-gray-100 px-4 py-2 text-gray-900">
+              <div className="flex space-x-1.5">
+                <div className="h-2 w-2 animate-bounce rounded-full bg-gray-500" />
+                <div className="h-2 w-2 animate-bounce rounded-full bg-gray-500" style={{ animationDelay: "0.2s" }} />
+                <div className="h-2 w-2 animate-bounce rounded-full bg-gray-500" style={{ animationDelay: "0.4s" }} />
               </div>
+              {/* The model can take tens of seconds on the free tier; saying what
+                  it's doing is the difference between "thinking" and "broken". */}
+              {status && (
+                <span aria-live="polite" className="text-sm text-gray-600">
+                  {status}
+                </span>
+              )}
             </div>
           </div>
         )}

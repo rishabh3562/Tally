@@ -19,6 +19,9 @@ export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
+  /** What the assistant is doing right now, streamed as `event: status`. Null
+   *  once the answer starts arriving (or when nothing is in flight). */
+  const [status, setStatus] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Load saved history once on mount so the conversation survives a reload.
@@ -122,6 +125,29 @@ export const useChat = () => {
       // line breaks as the two-character escape `\n` (see chat_service._sse_pack).
       const decodeChunk = (chunk: string) => chunk.replace(/\\n/g, '\n');
 
+      // The stream carries two kinds of event: progress (`event: status`) and the
+      // answer itself (plain `data:`). Track the current event name so a status
+      // line is shown as progress instead of being appended to the answer.
+      let eventName = '';
+      const consume = (line: string) => {
+        if (line.startsWith('event: ')) {
+          eventName = line.slice(7).trim();
+          return;
+        }
+        if (!line.startsWith('data: ')) {
+          if (line === '') eventName = ''; // blank line ends the event
+          return;
+        }
+        const payload = line.slice(6);
+        if (eventName === 'status') {
+          setStatus(payload);
+          return;
+        }
+        assistantContent += decodeChunk(payload);
+        setStatus(null); // the answer has started; stop showing progress
+        applyContent();
+      };
+
       // Buffer partial reads: a single network read is not guaranteed to align to
       // SSE line boundaries, so accumulate and only consume completed lines.
       let buffer = '';
@@ -133,19 +159,11 @@ export const useChat = () => {
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? ''; // keep the trailing (possibly partial) line
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            assistantContent += decodeChunk(line.slice(6));
-            applyContent();
-          }
-        }
+        for (const line of lines) consume(line);
       }
 
       // Flush any complete line left in the buffer at stream end.
-      if (buffer.startsWith('data: ')) {
-        assistantContent += decodeChunk(buffer.slice(6));
-        applyContent();
-      }
+      consume(buffer);
 
       // Provenance: the backend recorded this turn to chat_traces before the
       // stream ended, so the newest trace is ours. Attach it so the answer can
@@ -187,6 +205,7 @@ export const useChat = () => {
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
+      setStatus(null);
     }
   }, [queryClient]);
 
@@ -205,6 +224,7 @@ export const useChat = () => {
   return {
     messages,
     isLoading,
+    status,
     historyLoading,
     sendMessage,
     clearConversation,

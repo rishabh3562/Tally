@@ -10,6 +10,7 @@ never invents them.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import logging
 import re
@@ -1281,10 +1282,41 @@ def _save_messages(db: Client, user_id: str, question: str, answer: str) -> None
         logger.warning("failed to save chat messages: %s", e)
 
 
+def _sse_status(text: str) -> str:
+    """A named SSE event, so the client can show progress without it landing in
+    the answer text. Single-line payload, same framing rules as ``_sse_pack``."""
+    return f"event: status\ndata: {text}\n\n"
+
+
+# What to say while the model is working, and how long to wait before saying the
+# next thing. Measured against the live free model: ~5s typical, 68s worst — long
+# enough that three bouncing dots read as "broken" rather than "thinking".
+_PROGRESS_STEPS: list[tuple[float, str]] = [
+    (0.0, "Reading your transactions…"),
+    (2.5, "Working out the numbers…"),
+    (7.0, "Double-checking the figures…"),
+    (18.0, "Still going — the free model is slow today…"),
+]
+
+
 async def stream_chat_response(question: str, user_id: str, db: Client):
-    """Stream a chat answer as Server-Sent Events."""
+    """Stream a chat answer as Server-Sent Events.
+
+    Progress is streamed as ``event: status`` while the answer is being resolved;
+    the answer itself streams as plain ``data:`` events exactly as before, so the
+    two can't be confused. An instant answer (see ``prefers_deterministic``)
+    resolves before the first status is due and simply never sends one.
+    """
+    task = asyncio.create_task(_resolve_answer(question, user_id, db))
+
+    for delay, text in _PROGRESS_STEPS:
+        done, _ = await asyncio.wait({task}, timeout=delay)
+        if done:
+            break
+        yield _sse_status(text)
+
     try:
-        answer = await _resolve_answer(question, user_id, db)
+        answer = await task
     except Exception as e:  # pragma: no cover - defensive, surfaced to the user
         answer = f"Sorry, I couldn't answer that right now ({e})."
 
