@@ -11,7 +11,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",
-    orientation: "portrait-primary",
+    // No `orientation` lock: landscape is exactly where the transactions table
+    // becomes readable on a phone.
     background_color: "#ffffff",
     theme_color: "#2563eb",
     categories: ["finance", "productivity"],

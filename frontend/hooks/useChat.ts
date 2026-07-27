@@ -77,7 +77,15 @@ export const useChat = () => {
         body: JSON.stringify({ question }),
       });
 
-      if (!response.ok) throw new Error('Chat request failed');
+      // Say WHY it failed. A generic "I encountered an error" is what made the
+      // chat feel broken with no way to tell a stale login from a dead backend —
+      // and a request that never reaches the server records no trace either.
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Your session expired — please sign in again.');
+        }
+        throw new Error(`The server rejected the request (HTTP ${response.status}).`);
+      }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -143,10 +151,16 @@ export const useChat = () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
     } catch (error) {
       console.error('Chat error:', error);
+      const detail =
+        error instanceof TypeError
+          ? "I couldn't reach the server — check that the backend is running."
+          : error instanceof Error
+            ? error.message
+            : 'Something went wrong.';
       const errorMessage: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Sorry — ${detail}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);

@@ -222,11 +222,24 @@ def compare_periods(
     """Compare spending totals between two date ranges in a single call."""
     a = get_spending_summary(db, user_id, start=period_a_start, end=period_a_end)
     b = get_spending_summary(db, user_id, start=period_b_start, end=period_b_end)
-    return {
+    out: dict[str, Any] = {
         "period_a": a,
         "period_b": b,
         "spent_difference": round(a["total_spent"] - b["total_spent"], 2),
     }
+    # Both sides empty is not a comparison — hoist the flag to the top level so
+    # `chat_agent` answers "that period has no data" instead of "Rs 0 in both".
+    # (It only inspects the outermost result; nested flags would be invisible.)
+    if a.get("no_data_in_period") and b.get("no_data_in_period"):
+        starts = [x for x in (a["period_start"], b["period_start"]) if x]
+        ends = [x for x in (a["period_end"], b["period_end"]) if x]
+        out.update({
+            "no_data_in_period": True,
+            "data_covers": a["data_covers"],
+            "period_start": min(starts) if starts else None,
+            "period_end": max(ends) if ends else None,
+        })
+    return out
 
 
 def get_largest_transactions(

@@ -205,6 +205,54 @@ def test_agent_keeps_the_model_answer_when_the_period_has_data(monkeypatch):
     assert out == "You spent Rs 700 in March 2026."
 
 
+def test_compare_periods_hoists_the_flag_when_both_sides_are_empty():
+    """chat_agent only inspects the outermost result, so a nested flag is invisible."""
+    res = chat_tools.compare_periods(
+        _DB(ROWS), "u1",
+        period_a_start="2026-06-01", period_a_end="2026-06-30",
+        period_b_start="2026-07-01", period_b_end="2026-07-31",
+    )
+    assert res["no_data_in_period"] is True
+    assert res["period_start"] == "2026-06-01"
+    assert res["period_end"] == "2026-07-31"
+
+
+def test_compare_periods_does_not_flag_when_one_side_has_data():
+    res = chat_tools.compare_periods(
+        _DB(ROWS), "u1",
+        period_a_start="2026-03-01", period_a_end="2026-03-31",
+        period_b_start="2026-06-01", period_b_end="2026-06-30",
+    )
+    assert "no_data_in_period" not in res
+
+
+def test_agent_answers_an_all_empty_comparison_itself(monkeypatch):
+    calls = {"n": 0}
+
+    async def fake_json(prompt, **_):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {
+                "action": "call_tool",
+                "tool": "compare_periods",
+                "args": {
+                    "period_a_start": "2026-07-01", "period_a_end": "2026-07-31",
+                    "period_b_start": "2026-06-01", "period_b_end": "2026-06-30",
+                },
+            }
+        return {"action": "final", "answer": "You spent Rs 0 in both months."}
+
+    monkeypatch.setattr(chat_agent.llm_client, "is_available", lambda: True)
+    monkeypatch.setattr(chat_agent.llm_client, "acomplete_json", fake_json)
+
+    out = asyncio.run(
+        chat_agent.run_agent("did I spend more this month than last?", "u1", _DB(ROWS))
+    )
+    assert "no transactions" in out.lower()
+    assert "31 May 2026" in out
+    assert "Rs 0" not in out
+
+
 def test_agent_leaves_the_answer_alone_when_one_tool_did_find_data(monkeypatch):
     """A mixed transcript (one empty period, one with data) is a real comparison —
     the model's answer must survive."""

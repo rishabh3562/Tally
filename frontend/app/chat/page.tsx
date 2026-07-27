@@ -155,13 +155,17 @@ export default function ChatPage() {
               }`}
             >
               <div
-                className={`px-4 py-2 rounded-lg ${
+                className={`min-w-0 rounded-lg px-4 py-2 ${
                   message.role === "user"
-                    ? "max-w-xs lg:max-w-md bg-blue-600 text-white"
-                    : "max-w-md lg:max-w-2xl bg-gray-100 text-gray-900"
+                    ? "max-w-[85%] bg-blue-600 text-white lg:max-w-md"
+                    : "max-w-[92%] bg-gray-100 text-gray-900 lg:max-w-2xl"
                 }`}
               >
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                {/* break-words matters: answers list raw merchant names like
+                    SATHISHREDDYVADICHERLA, which pre-wrap alone won't break. */}
+                <p className="text-sm break-words whitespace-pre-wrap">
+                  {message.content}
+                </p>
                 <p
                   className={`text-xs mt-1 ${
                     message.role === "user"

@@ -925,7 +925,22 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     except Exception as e:
         logger.warning("chat agent errored, using deterministic path: %s", e)
         source, error = "error-fallback", str(e)
-        answer = await _fallback()
+        try:
+            answer = await _fallback()
+        except Exception as e2:
+            # The turn failed outright. Record it — this is the failure we most
+            # want to see in /chat/traces, and it used to leave no trace at all.
+            logger.exception("chat fallback failed")
+            answer = (
+                "Sorry, I couldn't work that out just now. Try asking a slightly "
+                "different way."
+            )
+            _record_trace(
+                db, user_id, question, steps, answer, "failed",
+                f"{e} | fallback: {e2}",
+                int((time.monotonic() - started) * 1000),
+            )
+            return answer
 
     _record_trace(
         db, user_id, question, steps, answer, source, error,
