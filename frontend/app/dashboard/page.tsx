@@ -353,15 +353,27 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-500 text-sm font-medium">Top Category</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
-                {topCategory
-                  ? `${iconByName.get(topCategory.name) ? `${iconByName.get(topCategory.name)} ` : ""}${topCategory.name}`
-                  : "—"}
-              </p>
-              {topCategory && (
-                <p className="text-sm text-gray-500 mt-1">
-                  {inr(topCategory.value)}
-                </p>
+              {/* Drills into the transactions behind the figure. */}
+              {topCategory ? (
+                <Link
+                  href={{
+                    pathname: "/transactions",
+                    query: { category: topCategory.name },
+                  }}
+                  className="group"
+                >
+                  <p className="mt-2 text-3xl font-bold text-gray-900 group-hover:text-blue-700">
+                    {iconByName.get(topCategory.name)
+                      ? `${iconByName.get(topCategory.name)} `
+                      : ""}
+                    {topCategory.name}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {inr(topCategory.value)}
+                  </p>
+                </Link>
+              ) : (
+                <p className="mt-2 text-3xl font-bold text-gray-900">—</p>
               )}
             </div>
             <TrendingDown className="w-12 h-12 text-red-500 opacity-20" />

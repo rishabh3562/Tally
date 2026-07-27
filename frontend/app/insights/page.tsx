@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import apiClient from "@/lib/api";
 import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash, Wand2, Users, Repeat } from "lucide-react";
 import { useCategories } from "@/hooks/useCategories";
@@ -300,10 +301,23 @@ export default function InsightsPage() {
                 <p className="text-gray-500 text-sm">No spending data for this range.</p>
               ) : (
                 <div className="space-y-3">
+                  {/* Each row drills into the actual transactions behind the
+                      figure (the date range in view travels with it). */}
                   {summary.top_categories.map((c) => (
-                    <div key={c.name}>
+                    <Link
+                      key={c.name}
+                      href={{
+                        pathname: "/transactions",
+                        query: {
+                          category: c.name,
+                          ...(start ? { start } : {}),
+                          ...(end ? { end } : {}),
+                        },
+                      }}
+                      className="group block rounded-lg -mx-1 px-1 py-0.5 transition hover:bg-gray-50"
+                    >
                       <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="text-gray-700">
+                        <span className="text-gray-700 group-hover:text-blue-700">
                           {iconByName.get(c.name) ? `${iconByName.get(c.name)} ` : ""}
                           {c.name}{" "}
                           <span className="text-gray-400">({c.count})</span>
@@ -316,7 +330,7 @@ export default function InsightsPage() {
                           style={{ width: `${(c.total / maxCategory) * 100}%` }}
                         />
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}

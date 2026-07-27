@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { TableRowsSkeleton } from "@/components/common/Skeleton";
 import { Sparkles } from "lucide-react";
 import apiClient from "@/lib/api";
@@ -274,12 +275,21 @@ function TransactionRow({
   );
 }
 
-export default function TransactionsPage() {
+function TransactionsView() {
+  // Filters can arrive in the URL (?category=Shopping&q=amazon&start=&end=), so a
+  // figure elsewhere in the app — an Insights row, a dashboard tile — can link
+  // straight to the transactions behind it, and the view stays bookmarkable.
+  const searchParams = useSearchParams();
+  const urlCategory = searchParams.get("category");
+
   const [page, setPage] = useState(1);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [startDate, setStartDate] = useState(searchParams.get("start") ?? "");
+  const [endDate, setEndDate] = useState(searchParams.get("end") ?? "");
+  const [search, setSearch] = useState(searchParams.get("q") ?? "");
+  // Seeded to match `search` so the very first fetch is already filtered.
+  const [debouncedSearch, setDebouncedSearch] = useState(
+    searchParams.get("q") ?? ""
+  );
   const [categoryFilter, setCategoryFilter] = useState("");
   const [sort, setSort] = useState<"date" | "amount">("date");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
@@ -318,6 +328,19 @@ export default function TransactionsPage() {
     order,
   });
   const { categories } = useCategories();
+
+  // The URL names a category ("?category=Shopping") because that's what a link
+  // from elsewhere knows; the filter itself needs the id, which only exists once
+  // categories have loaded. Apply once, then leave the user's own changes alone.
+  const urlCategoryApplied = useRef(false);
+  useEffect(() => {
+    if (urlCategoryApplied.current || !urlCategory || categories.length === 0) return;
+    const match = categories.find(
+      (c) => c.name.toLowerCase() === urlCategory.toLowerCase()
+    );
+    if (match) setCategoryFilter(match.id);
+    urlCategoryApplied.current = true;
+  }, [urlCategory, categories]);
 
   const rows = transactions as TransactionListItem[];
   const totalPages = Math.ceil(total / itemsPerPage);
@@ -865,5 +888,20 @@ export default function TransactionsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function TransactionsPage() {
+  // useSearchParams needs a Suspense boundary for the page to prerender.
+  return (
+    <Suspense
+      fallback={
+        <div className="rounded-lg bg-white p-6 shadow">
+          <p className="text-gray-500">Loading transactions…</p>
+        </div>
+      }
+    >
+      <TransactionsView />
+    </Suspense>
   );
 }
