@@ -316,6 +316,24 @@ export interface ContributionsResponse {
   total_recovered: number;
 }
 
+// Spending habits — merchants paid most OFTEN (GET /api/insights/habits).
+// Frequency, not size: the canteen you tap 28 times, not the one big purchase.
+export interface SpendingHabit {
+  merchant: string;
+  count: number;
+  total: number;
+  avg: number;
+  per_month: number;
+  first: string;
+  last: string;
+}
+
+export interface HabitsResponse {
+  data: SpendingHabit[];
+  count: number;
+  combined_total: number;
+}
+
 // Recurring payments / subscriptions (GET /api/insights/recurring)
 export interface RecurringPayment {
   merchant: string;

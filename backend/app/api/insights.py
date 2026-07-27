@@ -18,6 +18,7 @@ from app.core.auth import get_current_user
 from app.core.database import get_supabase
 from app.services import llm_client
 from app.services.contributions import detect_contributions
+from app.services.habits import detect_habits
 from app.services.recurring import detect_recurring
 from app.services.movers import compute_category_movers
 from app.services.merchant import canonical_merchant
@@ -60,6 +61,29 @@ async def get_movers(
     try:
         result = compute_category_movers(_fetch_transactions(db, user_id, None, None))
         return result or {"latest": None, "prev": None, "movers": []}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@router.get("/habits")
+async def get_habits(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """The merchants paid most OFTEN — small, frequent spends that add up.
+    Different question from "biggest merchants", which one big purchase can win."""
+    try:
+        rows = db.table("transactions").select(
+            "amount,date,raw_merchant"
+        ).eq("user_id", user_id).eq("is_transfer", False).execute().data or []
+        items = detect_habits(rows)
+        return {
+            "data": items,
+            "count": len(items),
+            "combined_total": round(sum(i["total"] for i in items), 2),
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)

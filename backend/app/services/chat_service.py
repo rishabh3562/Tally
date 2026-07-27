@@ -544,6 +544,37 @@ def _answer_recurring(db: Client, user_id: str) -> str:
     )
 
 
+def _is_habit_query(question: str) -> bool:
+    """A request for what you buy OFTEN (frequency), not what cost the most."""
+    q = question.lower()
+    return any(w in q for w in [
+        "habit", "most often", "most frequent", "frequently", "how often",
+        "buy the most", "small purchases", "little purchases", "adds up",
+        "add up", "regularly buy", "keep buying", "keep spending",
+    ])
+
+
+def _answer_habits(db: Client, user_id: str) -> str:
+    """The merchants paid most often — small spends that quietly add up."""
+    from app.services.habits import detect_habits
+
+    items = detect_habits(_fetch_transactions(db, user_id, None, None))
+    if not items:
+        return (
+            "No merchant shows up often enough yet to call it a habit — I look for "
+            "the same place paid at least five times."
+        )
+    total = sum(i["total"] for i in items)
+    return _listing(
+        f"The places you pay most often (together {_rupees(total)}):",
+        [
+            f"{i['merchant']} — {i['count']} payments, {_rupees(i['total'])} "
+            f"(~{_rupees(i['avg'])} each, about {i['per_month']:g}/month)"
+            for i in items
+        ],
+    )
+
+
 def _answer_open_ended(txns: list[dict], period: str) -> str:
     total_spent = sum(float(t["amount"]) for t in _spend_only(txns))
     total_received = sum(-float(t["amount"]) for t in txns if float(t.get("amount") or 0) < 0)
@@ -627,6 +658,9 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
 
     if _is_recurring_query(question):
         return _answer_recurring(db, user_id)
+
+    if _is_habit_query(question):
+        return _answer_habits(db, user_id)
 
     if _is_average_query(question):
         return _answer_average(db, user_id)

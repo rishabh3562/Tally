@@ -206,6 +206,19 @@ async def test_recurring_never_leaks_other_user():
     assert merchants == {"Netflix"}   # B's Spotify never detected for A
 
 
+async def test_habits_never_leaks_other_user():
+    # Both users tap their own canteen often. A must only ever see A's.
+    rows = (
+        [{"id": f"a{i}", "user_id": "A", "is_transfer": False, "amount": 80,
+          "date": f"2026-05-{i + 1:02d}", "raw_merchant": "CanteenA"} for i in range(6)]
+        + [{"id": f"b{i}", "user_id": "B", "is_transfer": False, "amount": 90,
+            "date": f"2026-05-{i + 1:02d}", "raw_merchant": "CanteenB"} for i in range(6)]
+    )
+    db = _FakeDB({"transactions": rows})
+    out = await insights.get_habits(user_id="A", db=db)
+    assert {r["merchant"] for r in out["data"]} == {"CanteenA"}
+
+
 async def test_contributions_never_leaks_other_user():
     # A has a 3-credit cluster; B has their own. A must only see A's.
     rows = (

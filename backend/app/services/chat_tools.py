@@ -539,6 +539,27 @@ def get_recurring_payments(
     }
 
 
+def get_frequent_merchants(
+    db: Client, user_id: str, *, question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Read tool: the merchants paid most OFTEN (small, frequent spends that add
+    up) — a different question from which merchant cost the most."""
+    from app.services.habits import detect_habits
+
+    rows = (
+        db.table("transactions").select("amount,date,raw_merchant")
+        .eq("user_id", user_id).eq("is_transfer", False)
+        .execute().data
+        or []
+    )
+    items = detect_habits(rows)
+    return {
+        "habits": items,
+        "count": len(items),
+        "combined_total": round(sum(i["total"] for i in items), 2),
+    }
+
+
 def get_category_movers(
     db: Client, user_id: str, *, question: str = "", **_: Any,
 ) -> dict[str, Any]:
@@ -597,6 +618,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "list_events": list_events,
     "compare_periods": compare_periods,
     "get_recurring_payments": get_recurring_payments,
+    "get_frequent_merchants": get_frequent_merchants,
     "get_category_movers": get_category_movers,
     "get_average_monthly_spend": get_average_monthly_spend,
 }
@@ -623,6 +645,7 @@ TOOL_SPECS = """\
 - list_events(): list the user's trips/events with totals.
 - compare_periods(period_a_start, period_a_end, period_b_start, period_b_end): compare two date ranges.
 - get_recurring_payments(): merchants charged on a regular monthly cadence (subscriptions, rent, memberships) + monthly total.
+- get_frequent_merchants(): the merchants paid most OFTEN (frequency, not size) — small spends that add up.
 - get_category_movers(): categories whose spend rose/fell the most between the two most recent months.
 - get_average_monthly_spend(): average spend per month across all history + the peak month.
 Dates are YYYY-MM-DD. Fields marked ? are optional; omit them if the user gave no range."""

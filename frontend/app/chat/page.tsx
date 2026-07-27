@@ -18,7 +18,7 @@ import type { ChatTrace } from "@/types";
 // PERFORMS changes on your data — the "tell it and it does it" (Palantir) idea.
 const ASK_PROMPTS = [
   "How much did I spend on food last month?",
-  "What are my recurring payments?",
+  "What do I buy most often?",
   "What jumped this month?",
   "What's my average monthly spend?",
   "Which merchants did I spend the most at?",

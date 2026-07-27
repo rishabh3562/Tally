@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
-import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash, Wand2, Users } from "lucide-react";
+import { Sparkles, TrendingDown, TrendingUp, Wallet, Hash, Wand2, Users, Repeat } from "lucide-react";
 import { useCategories } from "@/hooks/useCategories";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type {
   AIInsights,
   ContributionsResponse,
+  HabitsResponse,
   InsightsSummary,
   MoversResponse,
   RecategorizeResponse,
@@ -123,6 +124,17 @@ export default function InsightsPage() {
     staleTime: 5 * 60_000,
   });
   const recurringItems = recurring?.data ?? [];
+
+  const { data: habits } = useQuery<HabitsResponse>({
+    queryKey: ["habits"],
+    queryFn: async () => {
+      const response = await apiClient.get("/api/insights/habits");
+      return response.data;
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60_000,
+  });
+  const habitItems = habits?.data ?? [];
 
   const { data: movers } = useQuery<MoversResponse>({
     queryKey: ["movers"],
@@ -397,6 +409,46 @@ export default function InsightsPage() {
                   </p>
                 </div>
                 <span className="text-sm font-semibold text-red-600">+₹{inr(m.delta)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Habits — frequency, not size. Deliberately placed before the
+          subscriptions card: for real UPI data this one almost always has
+          something to say, where a monthly-cadence subscription often doesn't. */}
+      {habitItems.length > 0 && (
+        <div className="rounded-lg bg-white p-6 shadow">
+          <div className="mb-1 flex items-center gap-3">
+            <Repeat className="h-6 w-6 text-emerald-600" />
+            <h2 className="text-lg font-bold text-gray-900">Your habits</h2>
+          </div>
+          <p className="mb-4 text-sm text-gray-500">
+            The places you pay most often — small amounts that quietly add up to{" "}
+            <span className="font-medium text-gray-700">
+              ₹{inr(habits?.combined_total ?? 0)}
+            </span>
+            .
+          </p>
+          <div className="divide-y">
+            {habitItems.map((h) => (
+              <div
+                key={h.merchant}
+                className="flex items-center justify-between gap-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900">
+                    {h.merchant}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {h.count} payments · ~₹{inr(h.avg)} each · about {h.per_month}
+                    /month
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-gray-900">
+                  ₹{inr(h.total)}
+                </span>
               </div>
             ))}
           </div>
