@@ -23,6 +23,7 @@ from app.services.chat_service import (
     _fetch_transactions,
     _period_label,
     _spend_only,
+    data_coverage,
     parse_period,
 )
 
@@ -53,6 +54,26 @@ def _resolve_period(start: Optional[str], end: Optional[str], question: str) -> 
     return parse_period(question)
 
 
+def _empty_period_flag(
+    db: Client, user_id: str, start: Optional[str], end: Optional[str], found: int
+) -> dict[str, Any]:
+    """Extra result keys telling the model a bounded period is genuinely empty.
+
+    Without this a question about a month the user has no data for comes back as
+    a truthful-but-useless "Rs 0". With it, the agent can (and `chat_agent` does)
+    say the period is empty and name the range that isn't.
+    """
+    if found or not (start or end):
+        return {}
+    cov = data_coverage(db, user_id)
+    return {
+        "no_data_in_period": True,
+        "data_covers": {"first": cov["first"], "last": cov["last"]},
+        "period_start": start,
+        "period_end": end,
+    }
+
+
 # --- tools ------------------------------------------------------------------
 
 def get_spending_summary(
@@ -70,6 +91,7 @@ def get_spending_summary(
         "total_received": round(total_received, 2),
         "net": round(total_received - total_spent, 2),
         "txn_count": len(txns),
+        **_empty_period_flag(db, user_id, start, end, len(txns)),
     }
 
 
@@ -98,6 +120,7 @@ def get_spending_by_category(
         "period": _period_label(start, end),
         "categories": rows[:_MAX_ROWS],
         "total_spent": round(sum(r["total"] for r in rows), 2),
+        **_empty_period_flag(db, user_id, start, end, len(spend)),
     }
 
 
@@ -120,7 +143,11 @@ def get_top_merchants(
          for k, v in totals.items()),
         key=lambda r: r["total"], reverse=True,
     )
-    return {"period": _period_label(start, end), "merchants": rows[:limit]}
+    return {
+        "period": _period_label(start, end),
+        "merchants": rows[:limit],
+        **_empty_period_flag(db, user_id, start, end, len(spend)),
+    }
 
 
 def search_transactions(
@@ -225,6 +252,7 @@ def get_largest_transactions(
             }
             for t in spend
         ],
+        **_empty_period_flag(db, user_id, start, end, len(spend)),
     }
 
 

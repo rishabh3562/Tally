@@ -22,7 +22,7 @@ from typing import Any
 
 from supabase import Client
 
-from app.services import chat_tools, llm_client
+from app.services import chat_service, chat_tools, llm_client
 
 logger = logging.getLogger("tally.chat.agent")
 
@@ -133,6 +133,36 @@ def _action_confirmation(transcript: list[dict[str, Any]]) -> str | None:
                 f"{n} transaction{'s' if n != 1 else ''}."
             )
     return None
+
+
+def _empty_period_answer(transcript: list[dict[str, Any]]) -> str | None:
+    """Server-composed answer when every tool found the asked-about period empty.
+
+    A weak model reads `total_spent: 0` and reports "you spent Rs 0", which is
+    true and useless — the real answer is "that period has no data, here's the
+    range that does". The tools flag the case (`no_data_in_period`); we author
+    the sentence so it can't be lost in rendering. Returns None unless every
+    read-tool result in the transcript is flagged empty.
+    """
+    flagged = [
+        e["result"] for e in transcript
+        if isinstance(e.get("result"), dict) and e["result"].get("no_data_in_period")
+    ]
+    if not flagged:
+        return None
+    reads = [
+        e for e in transcript
+        if e.get("tool") in chat_tools.TOOLS and isinstance(e.get("result"), dict)
+    ]
+    if len(flagged) != len(reads):
+        return None  # something else did find data — let the model use it
+    res = flagged[-1]
+    cov = res.get("data_covers") or {}
+    return chat_service.empty_period_sentence(
+        chat_service._pretty_period(res.get("period_start"), res.get("period_end")),
+        cov.get("first"),
+        cov.get("last"),
+    )
 
 
 def _normalize_currency(text: str) -> str:
@@ -247,6 +277,9 @@ async def run_agent(
             confirmation = _action_confirmation(transcript)
             if confirmation:
                 return _normalize_currency(confirmation)
+            empty = _empty_period_answer(transcript)
+            if empty:
+                return empty
             answer = str(decision.get("answer", "")).strip()
             if answer and _verify_figures(answer, transcript):
                 return _normalize_currency(answer)
@@ -274,6 +307,11 @@ async def run_agent(
     confirmation = _action_confirmation(transcript)
     if confirmation:
         return _normalize_currency(confirmation)
+
+    # Same for an empty period: the wording is ours, not the model's.
+    empty = _empty_period_answer(transcript)
+    if empty:
+        return empty
 
     # Turn the collected tool data into a natural-language answer.
     try:

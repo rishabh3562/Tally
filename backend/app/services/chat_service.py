@@ -182,6 +182,86 @@ def _fetch_transactions(
     return q.execute().data or []
 
 
+def _pretty_date(iso: str) -> str:
+    """'2025-12-07' -> '7 Dec 2025' (falls back to the raw string if unparseable).
+
+    Built by hand rather than with strftime because the no-zero-pad day directive
+    differs by platform ('%-d' glibc vs '%#d' Windows).
+    """
+    try:
+        d = date.fromisoformat(str(iso)[:10])
+    except ValueError:
+        return str(iso)
+    return f"{d.day} {d.strftime('%b %Y')}"
+
+
+def _pretty_period(start: Optional[str], end: Optional[str]) -> str:
+    """Readable phrase for a range: 'June 2026', '7 Dec 2025 – 3 Jan 2026'.
+
+    `_period_label` stays ISO because other answers (and their tests) quote it;
+    this is the friendlier form used where the phrase carries the whole message.
+    """
+    if not start or not end:
+        return _period_label(start, end)
+    try:
+        s, e = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        return _period_label(start, end)
+    whole_months = s.day == 1 and e.day == calendar.monthrange(e.year, e.month)[1]
+    if whole_months:
+        if (s.year, s.month) == (e.year, e.month):
+            return s.strftime("%B %Y")
+        return f"{s.strftime('%B %Y')} to {e.strftime('%B %Y')}"
+    return f"{_pretty_date(start)} to {_pretty_date(end)}"
+
+
+def data_coverage(db: Client, user_id: str) -> dict[str, Optional[str]]:
+    """The first and last transaction date the user actually has.
+
+    Used to answer honestly when a question lands outside the imported range:
+    "no transactions in June 2026" is far more useful than "you spent Rs 0".
+    Selects only the date column (one small round-trip, no ordering) so any
+    PostgREST-shaped client can serve it.
+    """
+    rows = (
+        db.table("transactions")
+        .select("date")
+        .eq("user_id", user_id)
+        .execute()
+        .data
+        or []
+    )
+    dates = sorted(str(r["date"])[:10] for r in rows if r.get("date"))
+    if not dates:
+        return {"first": None, "last": None, "count": 0}
+    return {"first": dates[0], "last": dates[-1], "count": len(dates)}
+
+
+def empty_period_sentence(
+    period: str, first: Optional[str], last: Optional[str]
+) -> str:
+    """The one wording for "that period is empty", shared by both chat paths
+    (the deterministic answer and the agent's server-composed answer)."""
+    if not first:
+        return (
+            "You have no transactions imported yet. Upload a bank or UPI statement "
+            "and I'll show you exactly where your money went."
+        )
+    return (
+        f"You have no transactions in {period} — nothing was imported for those "
+        f"dates. Your data covers {_pretty_date(first)} to {_pretty_date(last)}, "
+        "so ask me about a date in that range."
+    )
+
+
+def empty_period_answer(
+    db: Client, user_id: str, start: Optional[str], end: Optional[str]
+) -> str:
+    """Honest answer for a period the user simply has no data in."""
+    cov = data_coverage(db, user_id)
+    return empty_period_sentence(_pretty_period(start, end), cov["first"], cov["last"])
+
+
 def _category_name(txn: dict) -> str:
     cat_obj = txn.get("categories")
     if isinstance(cat_obj, list):  # tolerate list-shaped embed
@@ -460,10 +540,9 @@ def _answer_comparison(db: Client, user_id: str, question: str) -> str:
     # Empty periods: say so plainly rather than "Rs 0, same in both", which reads
     # as broken when the user simply has no data imported for those dates.
     if not a_txns and not b_txns:
-        return (
-            f"I have no transactions for {a_label} or {b_label} — those periods "
-            "may be outside your imported statements."
-        )
+        cov = data_coverage(db, user_id)
+        both = f"{_pretty_period(a_start, a_end)} or {_pretty_period(b_start, b_end)}"
+        return empty_period_sentence(both, cov["first"], cov["last"])
     if not a_txns:
         return f"No transactions for {a_label}. {b_label}: you spent {_rupees(b_spend)}."
     if not b_txns:
@@ -524,6 +603,11 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
     start, end = parse_period(question)
     period = _period_label(start, end)
     txns = _fetch_transactions(db, user_id, start, end)
+
+    # A bounded period with nothing in it: say the period is empty and name the
+    # range that isn't, instead of reporting "Rs 0" as if it were the answer.
+    if not txns and (start or end):
+        return empty_period_answer(db, user_id, start, end)
 
     if _is_biggest_query(question):
         return _answer_biggest(txns, period)
