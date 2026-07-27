@@ -3,7 +3,8 @@
 import { useChat } from "@/hooks/useChat";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Send, Search, Wand2 } from "lucide-react";
+import { Send, Search, Wand2, ArrowUpRight } from "lucide-react";
+import { drillLinksFromTrace } from "@/lib/traceLinks";
 import {
   ActionBadge,
   SourceBadge,
@@ -36,6 +37,7 @@ const DO_PROMPTS = [
 function AnswerProvenance({ trace }: { trace: ChatTrace }) {
   const [open, setOpen] = useState(false);
   const steps = trace.steps ?? [];
+  const drills = drillLinksFromTrace(trace);
   return (
     <>
       <SourceBadge source={trace.source} />
@@ -46,6 +48,22 @@ function AnswerProvenance({ trace }: { trace: ChatTrace }) {
         <WhyToggle open={open} onToggle={() => setOpen((o) => !o)} />
       )}
       <div className="w-full">
+        {/* An answer is never a dead end: the figures came from rows, so offer
+            the rows. The filter is the tool's own arguments, not a guess. */}
+        {drills.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {drills.map((d) => (
+              <Link
+                key={d.label}
+                href={d.href}
+                className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-50"
+              >
+                {d.label}
+                <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            ))}
+          </div>
+        )}
         <SourceNote trace={trace} />
         {open && <TraceSteps steps={steps} />}
       </div>

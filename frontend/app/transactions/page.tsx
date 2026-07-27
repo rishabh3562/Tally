@@ -349,8 +349,12 @@ function TransactionsView() {
     setDebouncedSearch(q);
     setStartDate(searchParams.get("start") ?? "");
     setEndDate(searchParams.get("end") ?? "");
-    const match = urlCategory
-      ? categories.find((c) => c.name.toLowerCase() === urlCategory.toLowerCase())
+    // Exact name first; then a substring, because a link can arrive with the
+    // keyword a chat tool was called with ("food" -> "Food & Dining").
+    const wanted = urlCategory?.toLowerCase();
+    const match = wanted
+      ? categories.find((c) => c.name.toLowerCase() === wanted) ??
+        categories.find((c) => c.name.toLowerCase().includes(wanted))
       : undefined;
     setCategoryFilter(match?.id ?? "");
     setPage(1);
