@@ -7,7 +7,7 @@ import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import apiClient from "@/lib/api";
 import Header from "@/components/common/Header";
-import Sidebar from "@/components/common/Sidebar";
+import Sidebar, { MobileNav } from "@/components/common/Sidebar";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +42,7 @@ export default function ClientLayout({
 
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
   // Guards the one-time backend validation from running twice (React Strict Mode
   // remounts the effect, but refs persist across the remount).
   const didValidate = useRef(false);
@@ -120,7 +121,7 @@ export default function ClientLayout({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex h-dvh items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4">Tally</h1>
           <p>Loading...</p>
@@ -137,11 +138,12 @@ export default function ClientLayout({
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="flex h-screen">
+      <div className="flex h-dvh">
         <Sidebar />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Header user={user} />
-          <main className="flex-1 overflow-auto bg-gray-50 p-6">
+        <MobileNav open={navOpen} onClose={() => setNavOpen(false)} />
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <Header user={user} onOpenNav={() => setNavOpen(true)} />
+          <main className="flex-1 overflow-auto bg-gray-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6">
             {children}
           </main>
         </div>
