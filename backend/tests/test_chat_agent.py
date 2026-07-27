@@ -79,6 +79,14 @@ def test_verify_figures_accepts_matching():
     assert chat_agent._verify_figures("You spent Rs 1,800.00 on food.", transcript) is True
 
 
+def test_verify_accepts_a_figure_rounded_to_whole_rupees():
+    """The answer prompt asks for whole rupees (deterministic answers round too),
+    so rounding a tool's 4555.64 to 4,556 must not read as a fabricated figure."""
+    transcript = [{"tool": "get_spending_by_category",
+                   "args": {}, "result": {"total": 4555.64}}]
+    assert chat_agent._verify_figures("You spent Rs 4,556 on food.", transcript) is True
+
+
 def test_verify_figures_rejects_fabricated():
     transcript = [{"tool": "get_spending_summary", "result": {"total_spent": 1800.0}}]
     assert chat_agent._verify_figures("You spent Rs 9,999 on food.", transcript) is False
