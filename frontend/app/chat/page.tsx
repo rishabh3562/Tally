@@ -183,7 +183,7 @@ export default function ChatPage() {
           messages.map((message) => (
             <div
               key={message.id}
-              className={`flex ${
+              className={`animate-rise flex ${
                 message.role === "user" ? "justify-end" : "justify-start"
               }`}
             >

@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import apiClient from "@/lib/api";
 import Header from "@/components/common/Header";
 import Sidebar, { MobileNav } from "@/components/common/Sidebar";
+import TabBar from "@/components/common/TabBar";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -143,9 +144,11 @@ export default function ClientLayout({
         <MobileNav open={navOpen} onClose={() => setNavOpen(false)} />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Header user={user} onOpenNav={() => setNavOpen(true)} />
-          <main className="flex-1 overflow-auto bg-gray-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6">
+          <main className="flex-1 overflow-auto bg-gray-50 p-4 md:p-6">
             {children}
           </main>
+          {/* Phones get bottom tabs; the safe-area inset lives on the bar itself. */}
+          <TabBar />
         </div>
       </div>
     </QueryClientProvider>

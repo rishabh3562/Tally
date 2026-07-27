@@ -28,6 +28,26 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* A new chat message rises in instead of snapping into place — the one bit of
+   motion in the app, so it reads as "the assistant just said this". Skipped
+   entirely for anyone who asked for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes tally-rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-rise {
+    animation: tally-rise 180ms ease-out both;
+  }
+}
+
 /* Belt-and-suspenders: keep form controls readable even where a class omits an
    explicit text colour (native <select>/<option> otherwise inherit the page
    colour and vanish against their white background). */

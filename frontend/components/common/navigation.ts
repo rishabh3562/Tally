@@ -18,8 +18,8 @@ export type NavItem = {
   icon: LucideIcon;
 };
 
-/** Single source of truth for app navigation — the desktop sidebar and the
- *  mobile drawer both render from this list so they can never drift. */
+/** Single source of truth for app navigation — the desktop sidebar, the mobile
+ *  drawer and the mobile tab bar all render from this list so they can't drift. */
 export const navigationItems: NavItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: BarChart3 },
   { name: "Accounts", href: "/accounts", icon: Banknote },
@@ -32,3 +32,11 @@ export const navigationItems: NavItem[] = [
   { name: "Insights", href: "/insights", icon: PieChart },
   { name: "Chat", href: "/chat", icon: MessageCircle },
 ];
+
+/** The four screens worth a permanent thumb-reachable tab on a phone. Everything
+ *  else stays one tap away in the drawer. Order matters — this is the bar. */
+const TAB_HREFS = ["/dashboard", "/transactions", "/insights", "/chat"];
+
+export const tabBarItems: NavItem[] = TAB_HREFS.map(
+  (href) => navigationItems.find((i) => i.href === href)!
+);
