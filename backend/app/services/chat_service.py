@@ -1309,6 +1309,16 @@ async def stream_chat_response(question: str, user_id: str, db: Client):
     """
     task = asyncio.create_task(_resolve_answer(question, user_id, db))
 
+    def _drain(t: "asyncio.Task[str]") -> None:
+        """If the client disconnects, nobody awaits this task — retrieve any
+        exception so asyncio doesn't log it as never-retrieved. The turn is left
+        to finish rather than cancelled, so a write action the user already asked
+        for still completes and still lands in chat_traces."""
+        if not t.cancelled() and t.exception() is not None:
+            logger.warning("chat turn failed after the client went away: %s", t.exception())
+
+    task.add_done_callback(_drain)
+
     for delay, text in _PROGRESS_STEPS:
         done, _ = await asyncio.wait({task}, timeout=delay)
         if done:
