@@ -131,11 +131,16 @@ def parse_period(question: str, today: Optional[date] = None) -> tuple[Optional[
     if m:
         return (today - timedelta(days=30 * int(m.group(1)))).isoformat(), today.isoformat()
 
-    if "yesterday" in q:
+    if re.search(r"\byesterday\b", q):
         y = today - timedelta(days=1)
         return y.isoformat(), y.isoformat()
 
-    if "today" in q:
+    # "today" means one day only when it IS the period. In "up to today" / "as of
+    # today" it's the END of an open range, so scoping to a single day would
+    # answer the opposite of the question.
+    if re.search(r"\btoday\b", q) and not re.search(
+        r"\b(?:to|until|till|through|thru|as of|up to|so far)\s+today\b", q
+    ):
         return today.isoformat(), today.isoformat()
 
     # Weeks run Monday–Sunday. "last week" was previously unparsed, which silently

@@ -82,6 +82,14 @@ def test_yesterday_and_today():
     )
 
 
+def test_today_as_the_end_of_a_range_is_not_a_single_day():
+    """"up to today" is an open range ending now — scoping it to one day would
+    answer the opposite of the question."""
+    for q in ["what's my total up to today", "how much have I spent as of today",
+              "everything until today"]:
+        assert cs.parse_period(q, today=TODAY) == (None, None), q
+
+
 def test_last_n_weeks_and_months():
     assert cs.parse_period("the last 2 weeks", today=TODAY)[0] == "2026-07-01"
     assert cs.parse_period("past 3 months", today=TODAY)[0] == "2026-04-16"
@@ -152,7 +160,7 @@ def test_help_lists_capabilities():
     out = cs.answer_question("help", "u1", _DB([]))
     assert "Try:" in out
     assert "biggest expense" in out
-    assert "Rs" not in out.replace("Rs 1,200", "")  # no invented figures
+    assert "Rs" not in out  # it's a menu, not an answer — no figures at all
 
 
 def test_capability_query_variants():

@@ -37,6 +37,8 @@ export const navigationItems: NavItem[] = [
  *  else stays one tap away in the drawer. Order matters — this is the bar. */
 const TAB_HREFS = ["/dashboard", "/transactions", "/insights", "/chat"];
 
-export const tabBarItems: NavItem[] = TAB_HREFS.map(
-  (href) => navigationItems.find((i) => i.href === href)!
-);
+// filter, not a non-null assertion: renaming an href above should drop a tab,
+// not throw at module load and take the whole app down.
+export const tabBarItems: NavItem[] = TAB_HREFS.map((href) =>
+  navigationItems.find((i) => i.href === href)
+).filter((i): i is NavItem => Boolean(i));
