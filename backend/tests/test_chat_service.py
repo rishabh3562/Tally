@@ -299,6 +299,41 @@ def test_sse_pack_is_single_line_events():
         assert "\n" not in e[:-2]
 
 
+def _client_join(events: list[str]) -> str:
+    """Reassemble events exactly the way the browser does (useChat.ts): take
+    everything after 'data: ' and turn the \\n escape back into a line break."""
+    out = ""
+    for e in events:
+        for line in e.split("\n"):
+            if line.startswith("data: "):
+                out += line[6:].replace("\\n", "\n")
+    return out
+
+
+def test_sse_pack_keeps_line_breaks_frame_safe():
+    events = list(cs._sse_pack("Top merchants:\nAmazon Rs 100\nSwiggy Rs 50"))
+    # Framing is still one line per event — a raw newline would corrupt the stream.
+    for e in events:
+        assert e.endswith("\n\n")
+        assert "\n" not in e[:-2]
+    assert "data: \\n\n\n" in events
+
+
+def test_sse_round_trip_preserves_structure():
+    text = "Top merchants:\n- Amazon Rs 100\n- Swiggy Rs 50"
+    rebuilt = _client_join(list(cs._sse_pack(text)))
+    assert rebuilt.split("\n") == [
+        "Top merchants: ",
+        "- Amazon Rs 100 ",
+        "- Swiggy Rs 50 ",
+    ]
+
+
+def test_sse_round_trip_keeps_blank_lines():
+    rebuilt = _client_join(list(cs._sse_pack("Headline\n\nDetail")))
+    assert rebuilt == "Headline \n\nDetail "
+
+
 # --- regression: explicit category beats merchant heuristic (found on real data) ---
 
 def test_shopping_routes_to_category_not_merchants():

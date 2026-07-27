@@ -58,7 +58,7 @@ def test_reports_biggest_increase():
     out = chat_service._answer_what_jumped(_DB(rows), "u1")
     assert "Food" in out
     assert "Rs 2,000" in out           # the increase
-    assert "2026-03" in out and "2026-02" in out
+    assert "March 2026" in out and "February 2026" in out
 
 
 def test_flat_or_down_says_nothing_rose():

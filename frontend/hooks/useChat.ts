@@ -105,6 +105,10 @@ export const useChat = () => {
         });
       };
 
+      // A raw newline can't travel inside an SSE data line, so the server sends
+      // line breaks as the two-character escape `\n` (see chat_service._sse_pack).
+      const decodeChunk = (chunk: string) => chunk.replace(/\\n/g, '\n');
+
       // Buffer partial reads: a single network read is not guaranteed to align to
       // SSE line boundaries, so accumulate and only consume completed lines.
       let buffer = '';
@@ -118,7 +122,7 @@ export const useChat = () => {
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
-            assistantContent += line.slice(6);
+            assistantContent += decodeChunk(line.slice(6));
             applyContent();
           }
         }
@@ -126,7 +130,7 @@ export const useChat = () => {
 
       // Flush any complete line left in the buffer at stream end.
       if (buffer.startsWith('data: ')) {
-        assistantContent += buffer.slice(6);
+        assistantContent += decodeChunk(buffer.slice(6));
         applyContent();
       }
 

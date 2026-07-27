@@ -57,7 +57,7 @@ def test_answer_average_computes_mean_and_peak():
     out = chat_service._answer_average(_DB(rows), "u1")
     assert "Rs 2,000" in out          # (1000+2000+3000)/3
     assert "3 months" in out
-    assert "2026-03" in out           # peak month
+    assert "March 2026" in out        # peak month, in words
 
 
 def test_answer_average_ignores_credits():

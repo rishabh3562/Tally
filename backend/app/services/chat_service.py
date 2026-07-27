@@ -195,6 +195,14 @@ def _pretty_date(iso: str) -> str:
     return f"{d.day} {d.strftime('%b %Y')}"
 
 
+def _pretty_month(ym: str) -> str:
+    """'2026-04' -> 'April 2026' (month keys are what the detectors emit)."""
+    try:
+        return date.fromisoformat(f"{ym}-01").strftime("%B %Y")
+    except ValueError:
+        return ym
+
+
 def _pretty_period(start: Optional[str], end: Optional[str]) -> str:
     """Readable phrase for a range: 'June 2026', '7 Dec 2025 – 3 Jan 2026'.
 
@@ -212,6 +220,9 @@ def _pretty_period(start: Optional[str], end: Optional[str]) -> str:
         if (s.year, s.month) == (e.year, e.month):
             return s.strftime("%B %Y")
         return f"{s.strftime('%B %Y')} to {e.strftime('%B %Y')}"
+    # "this month" resolves to the 1st..today — a partial month, not a date range.
+    if s.day == 1 and (s.year, s.month) == (e.year, e.month):
+        return f"{s.strftime('%B %Y')} so far"
     return f"{_pretty_date(start)} to {_pretty_date(end)}"
 
 
@@ -278,6 +289,25 @@ def _rupees(amount: float) -> str:
     return f"Rs {amount:,.0f}"
 
 
+def _listing(headline: str, items: list[str], footer: str = "") -> str:
+    """A headline, then one item per line, then an optional closing line.
+
+    Line breaks survive the wire now (see ``_sse_pack``), so a breakdown reads as
+    a scannable list instead of a run-on sentence. Multi-line answers skip
+    ``rephrase`` — the structure IS the answer.
+    """
+    out = "\n".join([headline] + [f"• {i}" for i in items])
+    return f"{out}\n{footer}" if footer else out
+
+
+def _share(amount: float, total: float) -> str:
+    """' (34%)' — the share of the total, omitted when it isn't meaningful."""
+    if total <= 0:
+        return ""
+    pct = round(amount / total * 100)
+    return f" · {pct}%" if pct >= 1 else ""
+
+
 def _answer_total_by_category(txns: list[dict], question: str, period: str) -> str:
     spend = _spend_only(txns)
     if not spend:
@@ -299,10 +329,10 @@ def _answer_total_by_category(txns: list[dict], question: str, period: str) -> s
         totals[_category_name(t)] += float(t["amount"])
     top = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:5]
     grand = sum(totals.values())
-    breakdown = ", ".join(f"{name} ({_rupees(amt)})" for name, amt in top)
-    return (
+    return _listing(
         f"For {period} you spent {_rupees(grand)} across {len(spend)} transactions. "
-        f"Top categories: {breakdown}."
+        "Top categories:",
+        [f"{name} — {_rupees(amt)}{_share(amt, grand)}" for name, amt in top],
     )
 
 
@@ -317,10 +347,15 @@ def _answer_merchant_breakdown(txns: list[dict], period: str) -> str:
         totals[m]["total"] += float(t["amount"])
         totals[m]["count"] += 1
     top = sorted(totals.items(), key=lambda kv: kv[1]["total"], reverse=True)[:5]
-    breakdown = ", ".join(
-        f"{name} ({_rupees(v['total'])}, {int(v['count'])} txns)" for name, v in top
+    grand = sum(v["total"] for v in totals.values())
+    return _listing(
+        f"Your top merchants for {period}:",
+        [
+            f"{name} — {_rupees(v['total'])}{_share(v['total'], grand)} "
+            f"({int(v['count'])} payment{'s' if int(v['count']) != 1 else ''})"
+            for name, v in top
+        ],
     )
-    return f"Your top merchants for {period}: {breakdown}."
 
 
 _MERCHANT_CONNECTORS = [" paid to ", " at ", " to ", " pay ", " paid ", " from ", " on ", " with "]
@@ -392,13 +427,14 @@ def _answer_biggest(txns: list[dict], period: str) -> str:
     spend = sorted(_spend_only(txns), key=lambda t: float(t["amount"]), reverse=True)
     if not spend:
         return f"I found no spending for {period}."
-    top = spend[:3]
-    parts = [
-        f"{t.get('raw_merchant') or 'Unknown'} ({_rupees(float(t['amount']))}"
-        f"{', ' + str(t['date']) if t.get('date') else ''})"
-        for t in top
-    ]
-    return f"Your biggest expenses for {period}: " + ", ".join(parts) + "."
+    return _listing(
+        f"Your biggest expenses for {period}:",
+        [
+            f"{_rupees(float(t['amount']))} — {t.get('raw_merchant') or 'Unknown'}"
+            f"{' on ' + _pretty_date(str(t['date'])) if t.get('date') else ''}"
+            for t in spend[:3]
+        ],
+    )
 
 
 def _is_received_query(question: str) -> bool:
@@ -439,7 +475,8 @@ def _answer_average(db: Client, user_id: str) -> str:
     n = len(monthly)
     return (
         f"You spend about {_rupees(avg)}/month on average across {n} "
-        f"month{'s' if n != 1 else ''} (highest was {_rupees(hi_val)} in {hi_month})."
+        f"month{'s' if n != 1 else ''} (highest was {_rupees(hi_val)} in "
+        f"{_pretty_month(hi_month)})."
     )
 
 
@@ -460,7 +497,7 @@ def _answer_what_jumped(db: Client, user_id: str) -> str:
     result = compute_category_movers(_fetch_transactions(db, user_id, None, None))
     if result is None:
         return "I need at least two months of spending to compare — not enough history yet."
-    prev, latest = result["prev"], result["latest"]
+    prev, latest = _pretty_month(result["prev"]), _pretty_month(result["latest"])
     top = result["movers"][0]
     if top["delta"] <= 0:
         return (
@@ -496,14 +533,14 @@ def _answer_recurring(db: Client, user_id: str) -> str:
             "I couldn't spot any clearly recurring payments yet — I look for the "
             "same merchant charged at a regular monthly cadence for a similar amount."
         )
-    parts = [
-        f"{i['merchant']} (~{_rupees(i['monthly'])}/mo, {i['count']} charges)"
-        for i in items[:8]
-    ]
     total = sum(i["monthly"] for i in items)
-    return (
-        f"You have {len(items)} recurring payment{'s' if len(items) != 1 else ''} "
-        f"(~{_rupees(total)}/mo): " + ", ".join(parts) + "."
+    return _listing(
+        f"You have {len(items)} recurring payment"
+        f"{'s' if len(items) != 1 else ''}, about {_rupees(total)} a month:",
+        [
+            f"{i['merchant']} — ~{_rupees(i['monthly'])}/mo ({i['count']} charges)"
+            for i in items[:8]
+        ],
     )
 
 
@@ -535,7 +572,7 @@ def _answer_comparison(db: Client, user_id: str, question: str) -> str:
     b_txns = _fetch_transactions(db, user_id, b_start, b_end)
     a_spend = sum(float(t["amount"]) for t in _spend_only(a_txns))
     b_spend = sum(float(t["amount"]) for t in _spend_only(b_txns))
-    a_label, b_label = _period_label(a_start, a_end), _period_label(b_start, b_end)
+    a_label, b_label = _pretty_period(a_start, a_end), _pretty_period(b_start, b_end)
 
     # Empty periods: say so plainly rather than "Rs 0, same in both", which reads
     # as broken when the user simply has no data imported for those dates.
@@ -601,7 +638,7 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
         return _answer_comparison(db, user_id, question)
 
     start, end = parse_period(question)
-    period = _period_label(start, end)
+    period = _pretty_period(start, end)  # "March 2026", not "2026-03-01 to 2026-03-31"
     txns = _fetch_transactions(db, user_id, start, end)
 
     # A bounded period with nothing in it: say the period is empty and name the
@@ -636,6 +673,12 @@ async def rephrase(question: str, deterministic_answer: str) -> str:
     if not deterministic_answer or not llm_client.is_available():
         return deterministic_answer
 
+    # A multi-line answer is a deliberately structured listing (headline + one
+    # item per line). Asking the model for "one or two natural sentences" would
+    # flatten exactly the shape that makes it readable — so return it verbatim.
+    if "\n" in deterministic_answer:
+        return deterministic_answer
+
     prompt = (
         "You are a friendly personal-finance assistant. Rephrase the answer below "
         "in one or two natural sentences. You MUST keep every number, currency "
@@ -663,11 +706,17 @@ def _sse_pack(text: str):
     """Yield ``text`` as SSE ``data:`` events, one whitespace-delimited token at a
     time. Splitting on tokens keeps each event single-line so the frontend's
     line-based parser stays correct; a trailing space rejoins them on the client.
+
+    A raw newline would break SSE line framing, so line breaks travel as the
+    two-character escape ``\\n`` in their own event; the client turns that back
+    into a real line break. That's what lets an answer be a list instead of one
+    run-on sentence.
     """
-    # split() on all whitespace so an LLM rephrase containing a newline can't
-    # produce a token with an embedded '\n' that breaks SSE line framing.
-    for token in text.split():
-        yield f"data: {token} \n\n"
+    for i, line in enumerate(text.split("\n")):
+        if i:
+            yield "data: \\n\n\n"
+        for token in line.split():
+            yield f"data: {token} \n\n"
 
 
 def _record_trace(
