@@ -8,6 +8,7 @@ and `_verify_figures`, which only knows this turn's results, would reject it).
 """
 
 import asyncio
+from datetime import datetime, timezone
 
 import pytest
 
@@ -68,6 +69,11 @@ def _msg(role, content, at):
     return {"role": role, "content": content, "created_at": at}
 
 
+def _now_iso() -> str:
+    """Inside the 30-minute conversation window, so the gap rule keeps it."""
+    return datetime.now(timezone.utc).isoformat()
+
+
 HISTORY = [
     _msg("user", "how much did I spend on food in May 2026", "2026-07-27T10:00:00Z"),
     _msg("assistant", "You spent Rs 4,556 on Food & Dining in May 2026.", "2026-07-27T10:00:05Z"),
@@ -86,6 +92,31 @@ def test_recent_turns_is_capped_to_the_most_recent():
     many = [_msg("user", f"q{i}", f"2026-07-27T10:{i:02d}:00Z") for i in range(10)]
     turns = cs.recent_turns(_DB(messages=many), "u1", limit=3)
     assert [t["content"] for t in turns] == ["q7", "q8", "q9"]
+
+
+def test_history_stops_at_a_conversation_gap():
+    """chat_messages persists across sessions (only "New chat" clears it), so
+    without a gap rule tomorrow's first question inherits yesterday's scope."""
+    rows = [
+        _msg("user", "yesterday's question", "2026-07-26T09:00:00+00:00"),
+        _msg("assistant", "yesterday's answer", "2026-07-26T09:00:05+00:00"),
+        _msg("user", "this sitting", "2026-07-27T10:00:00+00:00"),
+        _msg("assistant", "this answer", "2026-07-27T10:00:04+00:00"),
+    ]
+    now = datetime(2026, 7, 27, 10, 1, tzinfo=timezone.utc)
+    turns = cs.recent_turns(_DB(messages=rows), "u1", now=now)
+    assert [t["content"] for t in turns] == ["this sitting", "this answer"]
+
+
+def test_a_stale_conversation_contributes_nothing():
+    rows = [_msg("user", "hours ago", "2026-07-27T04:00:00+00:00")]
+    now = datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc)
+    assert cs.recent_turns(_DB(messages=rows), "u1", now=now) == []
+
+
+def test_unparseable_timestamps_keep_the_row():
+    rows = [_msg("user", "no timestamp", None)]
+    assert cs.recent_turns(_DB(messages=rows), "u1")[0]["content"] == "no timestamp"
 
 
 def test_recent_turns_survives_a_broken_table():
@@ -157,3 +188,58 @@ def test_a_follow_up_question_is_given_the_previous_turn(monkeypatch):
 
     assert seen, "the agent never ran"
     assert "food in May 2026" in seen[0]
+
+
+# --- a fragment must not be answered instantly at the wrong scope -----------
+
+@pytest.mark.parametrize("fragment", [
+    "and per day?",
+    "what about each month?",
+    "what about the biggest one?",
+    "and swiggy?",
+])
+def test_fragments_are_recognized(fragment):
+    assert cs.looks_like_a_follow_up(fragment) is True
+
+
+@pytest.mark.parametrize("whole", [
+    "how much do I spend per day",
+    "what are my spending habits",
+    "how much did I spend at dmart",
+])
+def test_whole_questions_are_not_fragments(whole):
+    assert cs.looks_like_a_follow_up(whole) is False
+
+
+def test_a_fragment_with_history_goes_to_the_agent(monkeypatch):
+    """"what about each month?" trips the month-breakdown predicate and would be
+    answered INSTANTLY with total spend per month — ignoring that the previous
+    turn was about food. With a conversation behind it, the agent gets it."""
+    assert cs.prefers_deterministic("what about each month?") is True  # the trap
+    seen: list[str] = []
+
+    async def fake_json(prompt, **_):
+        seen.append(prompt)
+        return {"action": "final", "answer": "Here you go."}
+
+    monkeypatch.setattr(chat_agent.llm_client, "is_available", lambda: True)
+    monkeypatch.setattr(chat_agent.llm_client, "acomplete_json", fake_json)
+    monkeypatch.setattr(cs.llm_client, "is_available", lambda: True)
+
+    recent = [
+        _msg("user", "how much did I spend on food in May 2026", _now_iso()),
+        _msg("assistant", "Rs 4,556 on Food & Dining.", _now_iso()),
+    ]
+    asyncio.run(cs._resolve_answer("what about each month?", "u1", _DB(messages=recent)))
+    assert seen and "food in May 2026" in seen[0]
+
+
+def test_the_same_fragment_with_no_history_is_still_instant(monkeypatch):
+    async def never(*a, **k):
+        raise AssertionError("no model needed when there's no conversation")
+
+    monkeypatch.setattr(chat_agent.llm_client, "is_available", lambda: True)
+    monkeypatch.setattr(chat_agent.llm_client, "acomplete_json", never)
+
+    out = asyncio.run(cs._resolve_answer("what about each month?", "u1", _DB()))
+    assert "month by month" in out or "nothing to break down" in out

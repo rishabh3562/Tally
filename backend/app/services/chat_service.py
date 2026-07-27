@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -1309,7 +1309,13 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
         )
         return answer
 
-    if prefers_deterministic(question):
+    # A fragment is only a fragment if there's a conversation behind it, and that
+    # costs one small query — so only look when the wording suggests one.
+    turns: list[dict[str, str]] = []
+    if looks_like_a_follow_up(question):
+        turns = recent_turns(db, user_id)
+
+    if prefers_deterministic(question) and not turns:
         return _instant(answer_question(question, user_id, db))
 
     # A question about a period with NO data needs no model: the answer is "that
@@ -1335,7 +1341,7 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
         # nothing for it.
         answer = await chat_agent.run_agent(
             question, user_id, db, trace=steps,
-            turns=recent_turns(db, user_id),
+            turns=turns or recent_turns(db, user_id),
         )
     except chat_agent.AgentUnavailable as e:
         logger.info("chat agent unavailable, using deterministic path: %s", e)
@@ -1368,13 +1374,36 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     return answer
 
 
-def recent_turns(db: Client, user_id: str, limit: int = 4) -> list[dict[str, str]]:
-    """The last few messages of this user's conversation, oldest first.
+# A conversation ends when the user walks away. chat_messages persists across
+# sessions (only "New chat" clears it), so without a gap rule tomorrow morning's
+# first question would arrive with yesterday's last turns as "earlier in this
+# conversation" — and get silently scoped to a stale month or merchant.
+_CONVERSATION_GAP = timedelta(minutes=30)
+
+
+def _parse_ts(value: Any) -> Optional[datetime]:
+    """Postgres timestamps arrive as '2026-07-27 12:33:44.877367+00' (or with a
+    'T'). Returns None when it can't be read, and callers keep the row — losing
+    history is better than dropping a message we simply failed to parse."""
+    text = str(value or "").strip().replace(" ", "T")
+    if text.endswith("+00"):
+        text += ":00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def recent_turns(
+    db: Client, user_id: str, limit: int = 4, *, now: Optional[datetime] = None
+) -> list[dict[str, str]]:
+    """The last few messages of the CURRENT conversation, oldest first.
 
     Gives the agent enough context to resolve a follow-up ("and what about
     April?"), which was impossible before: `chat_messages` was written for the UI
     only and no prior turn ever reached the model. Kept small on purpose — a weak
-    free-tier model gets worse, not better, with a long transcript.
+    free-tier model gets worse, not better, with a long transcript — and cut at a
+    30-minute gap so a new sitting starts clean.
     """
     try:
         rows = (
@@ -1390,13 +1419,43 @@ def recent_turns(db: Client, user_id: str, limit: int = 4) -> list[dict[str, str
     except Exception as e:  # pragma: no cover - history is best-effort
         logger.warning("could not load chat history: %s", e)
         return []
+
+    rows = [r for r in rows if r.get("content")]
+    if not rows:
+        return []
+
+    # Walk newest -> oldest, stopping at the first gap that means "different
+    # sitting". The newest message is itself measured against now.
+    now = now or datetime.now(timezone.utc)
+    kept: list[dict] = []
+    previous = now
+    for row in rows:
+        stamp = _parse_ts(row.get("created_at"))
+        if stamp is not None:
+            if previous is not None and previous - stamp > _CONVERSATION_GAP:
+                break
+            previous = stamp
+        kept.append(row)
+
     turns = [
         {"role": str(r.get("role") or "user"), "content": str(r.get("content") or "")}
-        for r in rows
-        if r.get("content")
+        for r in kept
     ]
     turns.reverse()  # oldest first, the order a conversation reads in
     return turns
+
+
+# A follow-up fragment ("and per day?", "what about each month?") means nothing on
+# its own. Some of those trip a `prefers_deterministic` predicate and would be
+# answered instantly at the WRONG scope — "what about each month?" after a food
+# question would list total spend per month, not food per month. With a
+# conversation to lean on, hand fragments to the agent, which can see it.
+_FRAGMENT_OPENERS = ("and ", "what about", "how about", "and what about", "what if")
+
+
+def looks_like_a_follow_up(question: str) -> bool:
+    q = question.lower().strip(" ?.!")
+    return q.startswith(_FRAGMENT_OPENERS) or len(q.split()) <= 3
 
 
 def _save_messages(db: Client, user_id: str, question: str, answer: str) -> None:
