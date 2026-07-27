@@ -34,12 +34,19 @@ class _Query:
         self._rows = rows
         self._eq = []
         self._ilike = []
+        self._any_ilike = []      # an OR group: at least one must match
         self._lt = []
 
     def select(self, *a, **k):
         return self
 
-    def or_(self, *a, **k):
+    def or_(self, expr, *a, **k):
+        # Real PostgREST ANDs an or-group with the other filters; mirror that so
+        # this fake can't pass an isolation test the real database would fail.
+        for clause in expr.split(","):
+            col, op, value = clause.split(".", 2)
+            if op == "ilike":
+                self._any_ilike.append((col, value.strip("%")))
         return self
 
     def is_(self, col, val):
@@ -83,6 +90,12 @@ class _Query:
             rows = [r for r in rows if r.get(col) == val]
         for col, sub in self._ilike:
             rows = [r for r in rows if sub.lower() in str(r.get(col) or "").lower()]
+        if self._any_ilike:
+            rows = [
+                r for r in rows
+                if any(s.lower() in str(r.get(c) or "").lower()
+                       for c, s in self._any_ilike)
+            ]
         for col, val in self._lt:
             rows = [r for r in rows if (r.get(col) is not None and r[col] < val)]
         return _Result(list(rows))
@@ -117,6 +130,27 @@ async def test_transactions_list_never_leaks_other_user():
     )
     ids = {r["id"] for r in out["data"]}
     assert ids == {"a1"}          # B's row is invisible to A
+    assert out["total"] == 1
+
+
+async def test_merchant_search_never_leaks_other_user():
+    """The brand-aware search composes an `or_` of ilikes ALONGSIDE the user_id
+    filter. If that ever ANDs wrong, one user's merchant search would return
+    another's rows — and the service-role key means RLS won't catch it."""
+    rows = [
+        {"id": "a1", "user_id": "A", "date": "2026-07-01", "amount": 100,
+         "raw_merchant": "AmazonIndia", "memo": None, "category_id": None,
+         "confidence_score": 0.5, "categories": None},
+        {"id": "b1", "user_id": "B", "date": "2026-07-01", "amount": 200,
+         "raw_merchant": "AmazonPay", "memo": None, "category_id": None,
+         "confidence_score": 0.5, "categories": None},
+    ]
+    db = _FakeDB({"transactions": rows})
+    out = await transactions.list_transactions(
+        start_date=None, end_date=None, category_id=None, merchant="amazon",
+        merchant_exact=None, page=1, limit=50, user_id="A", db=db,
+    )
+    assert {r["id"] for r in out["data"]} == {"a1"}   # B's Amazon row stays hidden
     assert out["total"] == 1
 
 

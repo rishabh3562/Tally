@@ -166,6 +166,18 @@ def test_merchant_search_is_brand_aware(client):
         assert [t["raw_merchant"] for t in r.json()["data"]] == [expected], keyword
 
 
+def test_a_comma_in_the_search_box_does_not_break_the_filter(client):
+    """Verified against the live database: "amazon, swiggy" produced a 500
+    ("failed to parse logic tree") because `,` separates clauses in a PostgREST
+    or-expression. The keyword is stripped of the DSL's metacharacters now."""
+    for keyword in ["amazon, swiggy", "dmart)", "(swiggy"]:
+        r = client.get("/api/transactions", params={"merchant": keyword})
+        assert r.status_code == 200, (keyword, r.text[:200])
+    # And the cleaned keyword still matches what's left of it.
+    r = client.get("/api/transactions", params={"merchant": "(dmart)"})
+    assert [t["raw_merchant"] for t in r.json()["data"]] == ["AVENUESUPERMARTSLTD"]
+
+
 def test_merchant_exact_still_isolates_one_string(client):
     """The triage drill-in edits the rows of one exact merchant; a search there
     would pull in look-alikes and let an override hit the wrong rows."""
@@ -230,3 +242,16 @@ def test_chat_streams_through_the_real_endpoint(client, monkeypatch):
     assert answer.count("\n") >= 5           # and it's still a list, not one line
     for s in statuses:
         assert s not in answer               # progress never leaks into the answer
+
+
+def test_multi_word_search_matches_run_together_statement_strings(client):
+    """Statement merchants have no spaces ("AmazonIndia"), so a two-word search
+    has to try the squashed form too — verified live: "amazon pay" 0 -> 9 rows."""
+    r = client.get("/api/transactions", params={"merchant": "avenue supermarts"})
+    assert [t["raw_merchant"] for t in r.json()["data"]] == ["AVENUESUPERMARTSLTD"]
+
+
+def test_a_two_brand_phrase_is_not_expanded_to_one_of_them(client):
+    """"amazon, swiggy" must not quietly become a Swiggy-only search."""
+    r = client.get("/api/transactions", params={"merchant": "amazon, swiggy"})
+    assert r.json()["data"] == []

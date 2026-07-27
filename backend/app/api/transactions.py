@@ -3,6 +3,7 @@
 import csv
 import io
 import logging
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from datetime import date
@@ -17,6 +18,16 @@ from app.services.merchant import brand_tokens, canonical_merchant
 logger = logging.getLogger("tally.transactions")
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
+
+# `,` separates clauses and `()` group them inside a PostgREST `or=` expression,
+# so a search box containing one breaks the filter — verified: "amazon, swiggy"
+# returned a 500 ("failed to parse logic tree"). Drop them from the keyword.
+_SEARCH_UNSAFE = re.compile(r"[,()]+")
+
+
+def _clean_search_term(raw: str, *, max_len: int = 80) -> str:
+    """A merchant keyword that is safe to interpolate into a PostgREST filter."""
+    return _SEARCH_UNSAFE.sub(" ", raw).strip()[:max_len].strip()
 
 
 @router.get("", response_model=dict)
@@ -53,15 +64,27 @@ async def list_transactions(
             # exact match, so typing "Amazon" returned nothing at all (the rows are
             # "AmazonIndia", "AmazonPay", …). Brand-aware too: "dmart" finds
             # AVENUESUPERMARTSLTD, the same rule the chat already uses.
-            patterns = [f"raw_merchant.ilike.%{merchant}%"]
-            brand = canonical_merchant(merchant)
-            for token in brand_tokens(brand):
-                patterns.append(f"raw_merchant.ilike.%{token}%")
-            query = (
-                query.or_(",".join(patterns))
-                if len(patterns) > 1
-                else query.ilike("raw_merchant", f"%{merchant}%")
-            )
+            keyword = _clean_search_term(merchant)
+            if keyword:
+                patterns = [f"raw_merchant.ilike.%{keyword}%"]
+                # Statement strings are run together ("AmazonPay", "HungerBox"),
+                # so a two-word search would otherwise never match: also try it
+                # with the spaces removed.
+                squashed = keyword.replace(" ", "")
+                if squashed and squashed != keyword:
+                    patterns.append(f"raw_merchant.ilike.%{squashed}%")
+                # Brand expansion only for a single word: "amazon, swiggy" cleans
+                # to "amazon  swiggy", which canonicalizes to Swiggy and would
+                # surprise the user with Swiggy rows and no Amazon ones. A
+                # multi-word phrase stays a literal search.
+                if " " not in keyword:
+                    for token in brand_tokens(canonical_merchant(keyword)):
+                        patterns.append(f"raw_merchant.ilike.%{token}%")
+                query = (
+                    query.or_(",".join(patterns))
+                    if len(patterns) > 1
+                    else query.ilike("raw_merchant", f"%{keyword}%")
+                )
 
         # Get total count
         count_response = query.execute()
