@@ -3,22 +3,16 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { ChevronRight, Wrench, Zap } from "lucide-react";
 import apiClient from "@/lib/api";
 import type { ChatTrace } from "@/types";
-
-function SourceBadge({ source }: { source: ChatTrace["source"] }) {
-  const map: Record<ChatTrace["source"], string> = {
-    agent: "bg-indigo-50 text-indigo-700",
-    deterministic: "bg-gray-100 text-gray-600",
-    "error-fallback": "bg-red-50 text-red-700",
-  };
-  return (
-    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide ${map[source]}`}>
-      {source}
-    </span>
-  );
-}
+import {
+  ActionBadge,
+  SourceBadge,
+  SourceNote,
+  ToolCallCount,
+  TraceSteps,
+  WhyToggle,
+} from "@/components/chat/TraceDetail";
 
 function TraceCard({ t }: { t: ChatTrace }) {
   const [open, setOpen] = useState(false);
@@ -30,55 +24,23 @@ function TraceCard({ t }: { t: ChatTrace }) {
           <p className="font-medium text-gray-900">{t.question}</p>
           <p className="text-sm text-gray-600 mt-1">{t.answer}</p>
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
+        <div className="flex shrink-0 flex-col items-end gap-1">
           <SourceBadge source={t.source} />
-          {t.action_taken && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 uppercase tracking-wide">
-              <Zap className="w-3 h-3" /> action
-            </span>
-          )}
+          {t.action_taken && <ActionBadge />}
         </div>
       </div>
 
-      <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-400">
         <span>{new Date(t.created_at).toLocaleString("en-IN")}</span>
         {t.duration_ms != null && <span>{t.duration_ms} ms</span>}
-        <span className="inline-flex items-center gap-1">
-          <Wrench className="w-3 h-3" />
-          {steps.length} tool call{steps.length === 1 ? "" : "s"}
-        </span>
+        <ToolCallCount steps={steps} />
         {(steps.length > 0 || t.error) && (
-          <button
-            onClick={() => setOpen((o) => !o)}
-            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700"
-          >
-            <ChevronRight className={`w-3.5 h-3.5 transition ${open ? "rotate-90" : ""}`} />
-            {open ? "hide" : "why?"}
-          </button>
+          <WhyToggle open={open} onToggle={() => setOpen((o) => !o)} />
         )}
       </div>
 
-      {t.source !== "agent" && (
-        <p className="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
-          Answered <strong>without AI</strong> (deterministic engine)
-          {t.error ? ` — ${t.error}` : ""}.
-        </p>
-      )}
-
-      {open && steps.length > 0 && (
-        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
-          {steps.map((s, i) => (
-            <div key={i} className="text-xs">
-              <p className="font-mono font-semibold text-gray-800">
-                {s.tool}({JSON.stringify(s.args)})
-              </p>
-              <pre className="mt-1 bg-gray-50 rounded-lg p-2 overflow-x-auto text-gray-700">
-                {JSON.stringify(s.result, null, 2)}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
+      <SourceNote trace={t} />
+      {open && <TraceSteps steps={steps} />}
     </div>
   );
 }

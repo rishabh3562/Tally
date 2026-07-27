@@ -290,7 +290,8 @@ export interface ChatTrace {
   question: string;
   steps: ChatTraceStep[] | null;
   answer: string;
-  source: 'agent' | 'deterministic' | 'error-fallback';
+  // 'failed' = even the deterministic fallback raised; the turn produced no answer.
+  source: 'agent' | 'deterministic' | 'error-fallback' | 'failed';
   action_taken: boolean;
   error: string | null;
   duration_ms: number | null;

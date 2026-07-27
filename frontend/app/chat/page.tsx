@@ -4,6 +4,15 @@ import { useChat } from "@/hooks/useChat";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Send, Search, Wand2 } from "lucide-react";
+import {
+  ActionBadge,
+  SourceBadge,
+  SourceNote,
+  ToolCallCount,
+  TraceSteps,
+  WhyToggle,
+} from "@/components/chat/TraceDetail";
+import type { ChatTrace } from "@/types";
 
 // Two capabilities, shown distinctly: the assistant both ANSWERS questions and
 // PERFORMS changes on your data — the "tell it and it does it" (Palantir) idea.
@@ -19,6 +28,30 @@ const DO_PROMPTS = [
   "Create a category called Rent",
   "Categorize Swiggy as Food & Dining",
 ];
+
+/** "Why?" under an answer: the tools that produced it and the data they
+ *  returned, inline. The same provenance the /chat/traces page shows — here it's
+ *  attached to the answer you're reading, so a wrong number is traceable to the
+ *  exact call that produced it without leaving the conversation. */
+function AnswerProvenance({ trace }: { trace: ChatTrace }) {
+  const [open, setOpen] = useState(false);
+  const steps = trace.steps ?? [];
+  return (
+    <>
+      <SourceBadge source={trace.source} />
+      {trace.action_taken && <ActionBadge />}
+      <ToolCallCount steps={steps} />
+      {trace.duration_ms != null && <span>{trace.duration_ms} ms</span>}
+      {(steps.length > 0 || trace.error) && (
+        <WhyToggle open={open} onToggle={() => setOpen((o) => !o)} />
+      )}
+      <div className="w-full">
+        <SourceNote trace={trace} />
+        {open && <TraceSteps steps={steps} />}
+      </div>
+    </>
+  );
+}
 
 export default function ChatPage() {
   const { messages, isLoading, historyLoading, sendMessage, clearConversation } = useChat();
@@ -166,15 +199,14 @@ export default function ChatPage() {
                 <p className="text-sm break-words whitespace-pre-wrap">
                   {message.content}
                 </p>
-                <p
-                  className={`text-xs mt-1 ${
-                    message.role === "user"
-                      ? "text-blue-100"
-                      : "text-gray-500"
+                <div
+                  className={`mt-1 flex flex-wrap items-center gap-3 text-xs ${
+                    message.role === "user" ? "text-blue-100" : "text-gray-500"
                   }`}
                 >
-                  {message.timestamp.toLocaleTimeString()}
-                </p>
+                  <span>{message.timestamp.toLocaleTimeString()}</span>
+                  {message.trace && <AnswerProvenance trace={message.trace} />}
+                </div>
               </div>
             </div>
           ))

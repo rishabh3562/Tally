@@ -2,12 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import apiClient from '@/lib/api';
 import { supabase } from '@/lib/supabase';
+import type { ChatTrace } from '@/types';
 
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  /** Provenance for this answer — which tools ran and what they returned. Only
+   *  present for answers produced in this session (the trace is fetched right
+   *  after the stream ends); reloaded history has none. */
+  trace?: ChatTrace;
 }
 
 export const useChat = () => {
@@ -140,6 +145,22 @@ export const useChat = () => {
       if (buffer.startsWith('data: ')) {
         assistantContent += decodeChunk(buffer.slice(6));
         applyContent();
+      }
+
+      // Provenance: the backend recorded this turn to chat_traces before the
+      // stream ended, so the newest trace is ours. Attach it so the answer can
+      // show WHICH tools produced it — best-effort, and only if the question
+      // matches (a concurrent turn from another tab must not mislabel it).
+      try {
+        const res = await apiClient.get('/api/chat/traces', { params: { limit: 1 } });
+        const trace = (res.data?.data ?? [])[0] as ChatTrace | undefined;
+        if (trace && trace.question === question) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantId ? { ...m, trace } : m))
+          );
+        }
+      } catch {
+        // Provenance is a bonus; never let it break the answer.
       }
 
       // The chat can now MUTATE data (categorize a merchant, create a category),

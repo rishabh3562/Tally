@@ -67,26 +67,30 @@ function DrillIn({
           return (
             <li
               key={r.id}
-              className="flex items-center justify-between gap-3 text-sm"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm sm:justify-between"
             >
-              <span className="text-gray-500 w-24 shrink-0">
+              <span className="w-24 shrink-0 text-gray-500">
                 {formatDate(r.date)}
               </span>
               <span
-                className={`w-28 shrink-0 font-medium ${
+                className={`shrink-0 font-medium sm:w-28 ${
                   received ? "text-green-600" : "text-gray-900"
                 }`}
               >
                 {formatCurrency(r.amount)}
               </span>
-              <span className="flex-1 truncate text-gray-400">{r.memo}</span>
+              <span className="hidden flex-1 truncate text-gray-400 sm:block">
+                {r.memo}
+              </span>
+              {/* The picker takes its own line on a phone rather than being
+                  squeezed to a few characters beside the date and amount. */}
               <select
                 defaultValue={r.category_id ?? ""}
                 onChange={(e) =>
                   e.target.value &&
                   override.mutate({ id: r.id, categoryId: e.target.value })
                 }
-                className="text-sm text-gray-900 border border-gray-300 rounded-lg px-2 py-1 bg-white max-w-[10rem]"
+                className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 sm:w-auto sm:max-w-[10rem]"
                 aria-label={`Category for payment on ${r.date}`}
               >
                 <option value="" disabled>
