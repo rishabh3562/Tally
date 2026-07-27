@@ -157,44 +157,145 @@ def rule_category(
     return None
 
 
+def _merchant_key(raw: str) -> str:
+    """Punctuation- and case-insensitive form, the same normalisation
+    `rule_category` uses. `AmazonPay` and `Amazon Pay` are one key."""
+    return re.sub(r"[^A-Z0-9]", "", (raw or "").upper())
+
+
+# A correction has to be at least this specific before it's applied to merchant
+# strings the user never saw. `chat_tools` uses 4 for an action the user confirms
+# on the spot; auto-application to future imports deserves more.
+_MIN_OVERRIDE_KEY = 6
+
+
+def load_user_overrides(db: Client, user_id: Optional[str]) -> dict[str, str]:
+    """{normalised_merchant_key: category_id} for what THIS user decided by hand.
+
+    One query per import/request. Fails closed: with no `user_id` we return
+    nothing rather than reading another user's corrections — the read used to have
+    no user filter at all, so with two users A's private label drove B's imports.
+    """
+    if not user_id:
+        logger.warning(
+            "load_user_overrides called without user_id — skipping (fail closed)"
+        )
+        return {}
+    try:
+        rows = (
+            db.table("learning_records")
+            .select("raw_merchant,category_id")
+            .eq("user_id", user_id)
+            .eq("source", "user")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as e:  # pragma: no cover - overrides are best-effort
+        logger.warning("could not load user overrides: %s", e)
+        return {}
+    return {
+        _merchant_key(r["raw_merchant"]): r["category_id"]
+        for r in rows
+        if r.get("raw_merchant") and r.get("category_id")
+    }
+
+
+def match_override(raw_merchant: str, overrides: dict[str, str]) -> Optional[str]:
+    """The category_id the user chose for this merchant, or None.
+
+    Exact key first, then the LONGEST matching substring key — real data needs
+    both: a correction saved as `SWIGGYINSTAMART` must cover
+    `SWIGGYINSTAMARTPRIVATELIMITED`, while `AmazonPayGroceries` must beat the
+    shorter `AmazonPay` that also matches it.
+    """
+    if not raw_merchant or not overrides:
+        return None
+    key = _merchant_key(raw_merchant)
+    if key in overrides:
+        return overrides[key]
+    best: Optional[str] = None
+    best_len = 0
+    for candidate, category_id in overrides.items():
+        if len(candidate) < _MIN_OVERRIDE_KEY or len(candidate) <= best_len:
+            continue
+        if candidate in key:
+            best, best_len = category_id, len(candidate)
+    return best
+
+
+def resolve_category(
+    raw_merchant: str,
+    memo: Optional[str],
+    overrides: dict[str, str],
+) -> Tuple[Optional[str], Optional[str], float]:
+    """`(category_id, category_name, confidence)` — the full deterministic decision.
+
+    Layer 0 is what the user decided, and it beats the rules: they had already
+    corrected `SWIGGYINSTAMART` to Food & Dining, `KHELOMORE…` to Health and
+    `REDBUS` to Transport, and the rule engine was quietly contradicting all three
+    on every new import. Returns an **id** for an override (the user's own
+    categories don't exist in the system-only name lookups) and a **name** for a
+    rule hit.
+    """
+    override_id = match_override(raw_merchant, overrides)
+    if override_id:
+        return override_id, None, 1.0
+    hit = rule_category(raw_merchant, memo)
+    if hit:
+        return None, hit[0], hit[1]
+    return None, None, 0.0
+
+
 async def categorize_transaction(
     raw_merchant: str,
     amount: float,
     memo: Optional[str] = None,
     db: Optional[Client] = None,
+    user_id: Optional[str] = None,
 ) -> Tuple[str, float]:
-    """
-    Categorize a transaction based on merchant and amount.
+    """Categorize one transaction, by NAME (see `resolve_category` for ids).
 
     Args:
         raw_merchant: Canonical or raw merchant name
         amount: Transaction amount
         memo: Optional transaction memo
         db: Optional Supabase client (for learning records)
+        user_id: REQUIRED alongside `db` — learning_records are per-user. Without
+            it the learning lookup is skipped entirely rather than reading every
+            user's corrections.
 
     Returns:
         Tuple of (category_name, confidence_score)
+
+    Prefer `load_user_overrides` + `resolve_category` for bulk work: this does a
+    per-call query, and it can only return a category NAME, which system-only name
+    lookups cannot resolve for a user's own category.
     """
+    # Layer 0: what the user decided, ahead of the rules.
+    if db and user_id:
+        overrides = load_user_overrides(db, user_id)
+        category_id = match_override(raw_merchant, overrides)
+        if category_id:
+            try:
+                cat = db.table("categories").select("name").eq(
+                    "id", category_id
+                ).limit(1).execute()
+                if cat.data:
+                    return cat.data[0]["name"], 1.0
+            except Exception as e:  # pragma: no cover - fall through to rules
+                logger.warning("override category lookup failed: %s", e)
+    elif db and not user_id:
+        logger.warning(
+            "categorize_transaction got a db but no user_id — learning records "
+            "skipped (they are per-user; an unscoped read would apply one user's "
+            "corrections to another's transactions)"
+        )
+
     # Layers 1 & 2: deterministic rules (brand tokens + regex).
     hit = rule_category(raw_merchant, memo)
     if hit:
         return hit
-
-    # Layer 3: Check learning records if db provided
-    if db:
-        try:
-            response = db.table("learning_records").select("category_id").eq(
-                "raw_merchant", raw_merchant
-            ).limit(1).execute()
-            if response.data and response.data[0]["category_id"]:
-                category_id = response.data[0]["category_id"]
-                category = db.table("categories").select("name").eq(
-                    "id", category_id
-                ).limit(1).execute()
-                if category.data:
-                    return category.data[0]["name"], 0.95
-        except Exception:
-            pass
 
     # Default fallback
     return "Other", 0.5

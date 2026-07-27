@@ -13,7 +13,7 @@ from app.core.auth import get_current_user
 from app.core.config import get_settings
 from app.schemas.uploads import UploadResponse, JobStatusOut
 from app.services.parser import parse_pdf, parse_csv, parse_xlsx
-from app.services.categorizer import categorize_transaction
+from app.services.categorizer import load_user_overrides, resolve_category
 from app.services.deduplicator import fingerprint
 from app.services.storage import archive_statement
 
@@ -278,7 +278,36 @@ async def _run_ingestion(
         existing_fps = {r["fingerprint"] for r in (existing.data or []) if r.get("fingerprint")}
 
         # 3) Categorize + insert
+        #
+        # What the user has already corrected by hand, loaded ONCE for the whole
+        # job and applied ahead of the rules. Without this, an import silently
+        # contradicted decisions they'd already made (they had corrected
+        # SWIGGYINSTAMART to Food & Dining, KHELOMORE… to Health and REDBUS to
+        # Transport; the rule engine said Groceries, Entertainment and Travel).
+        overrides = load_user_overrides(db, user_id)
+        if overrides:
+            logger.info("job %s: applying %d user category overrides", job_id, len(overrides))
+
         category_id_cache: dict[str, str | None] = {}
+        category_name_cache: dict[str, str] = {}
+
+        def category_name_by_id(_db, category_id: str | None) -> str:
+            """Label for an override's category id, for the job's stats only."""
+            if not category_id:
+                return "Other"
+            if category_id in category_name_cache:
+                return category_name_cache[category_id]
+            name = "Other"
+            try:
+                res = _db.table("categories").select("name").eq(
+                    "id", category_id
+                ).limit(1).execute()
+                if res.data:
+                    name = res.data[0]["name"]
+            except Exception as e:
+                logger.warning(f"job {job_id}: category name lookup failed: {e}")
+            category_name_cache[category_id] = name
+            return name
 
         def resolve_category_id(name: str) -> str | None:
             if name in category_id_cache:
@@ -303,7 +332,12 @@ async def _run_ingestion(
 
         # Categorization is deterministic per merchant string, so memoize it to
         # avoid ~1 DB lookup per transaction (513 -> ~unique-merchant count).
-        merchant_category_cache: dict[str, tuple[str, float]] = {}
+        # Cached value is (category_id | None, category_name | None, confidence):
+        # an override gives an ID directly, which matters because resolve_category_id
+        # is system-only and CREATES a category it can't find — resolving an override
+        # for the user's own "Health" by name would mint a phantom system "Health"
+        # and split that money across two identical-looking categories.
+        merchant_category_cache: dict[str, tuple[str | None, str | None, float]] = {}
         rows: list[dict] = []
 
         for tx in raw_txs:
@@ -330,13 +364,21 @@ async def _run_ingestion(
 
             merchant = tx["raw_merchant"]
             if merchant in merchant_category_cache:
-                category, confidence = merchant_category_cache[merchant]
+                cat_id, cat_name, confidence = merchant_category_cache[merchant]
             else:
-                category, confidence = await categorize_transaction(
-                    merchant, tx["amount"], tx.get("memo"), db
+                cat_id, cat_name, confidence = resolve_category(
+                    merchant, tx.get("memo"), overrides
                 )
-                merchant_category_cache[merchant] = (category, confidence)
-            stats["categories"][category] = stats["categories"].get(category, 0) + 1
+                if cat_id is None:
+                    # A rule hit (by name) or nothing at all -> "Other".
+                    cat_name = cat_name or "Other"
+                    confidence = confidence or 0.5
+                    cat_id = resolve_category_id(cat_name)
+                merchant_category_cache[merchant] = (cat_id, cat_name, confidence)
+            # An override is counted under the label the user picked, not a name we
+            # guessed, so the job summary reflects what actually landed.
+            label = cat_name or category_name_by_id(db, cat_id)
+            stats["categories"][label] = stats["categories"].get(label, 0) + 1
 
             rows.append({
                 "user_id": user_id,
@@ -346,7 +388,7 @@ async def _run_ingestion(
                 "currency": tx.get("currency", "INR"),
                 "raw_merchant": merchant,
                 "counterparty": tx.get("counterparty") or merchant,
-                "category_id": resolve_category_id(category),
+                "category_id": cat_id,
                 "memo": tx.get("memo", ""),
                 "fingerprint": fp,
                 "confidence_score": confidence,

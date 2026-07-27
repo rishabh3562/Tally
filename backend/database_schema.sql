@@ -87,13 +87,20 @@ CREATE TABLE IF NOT EXISTS transaction_categories (
   PRIMARY KEY (transaction_id, category_id)
 );
 
--- User feedback / learning records
+-- User feedback / learning records — "fix a category once and it sticks".
+-- `source` tells a USER decision (triage, chat, a single-row correction) apart
+-- from a machine GUESS (/recategorize's rule or LLM pass). Only 'user' rows
+-- outrank the rule engine; 'rule'/'llm' rows are a cache consulted after rules
+-- miss, so future rule improvements aren't frozen by the first recategorize run.
+-- The default is deliberately weak: a path that forgets to say what it is
+-- degrades to "guess", never to "intent". (migration 006)
 CREATE TABLE IF NOT EXISTS learning_records (
   id SERIAL PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   raw_merchant TEXT NOT NULL,
   category_id UUID REFERENCES categories(id),
   merchant_id UUID REFERENCES merchants(id),
+  source TEXT DEFAULT 'rule' CHECK (source IN ('user', 'rule', 'llm')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, raw_merchant)
 );
@@ -209,6 +216,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_group ON transactions(group_id);
 CREATE INDEX IF NOT EXISTS idx_events_user_id ON events(user_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_learning_records_user_merchant ON learning_records(user_id, raw_merchant);
+CREATE INDEX IF NOT EXISTS idx_learning_records_user_source ON learning_records(user_id, source);
 CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_user_id ON processing_jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_file_hash ON processing_jobs(file_hash);

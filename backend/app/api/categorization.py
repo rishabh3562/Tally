@@ -136,9 +136,12 @@ async def recategorize(
     the same merchant is categorized for free.
     """
     try:
-        # Valid category names + a name->id map (system categories).
-        cats = db.table("categories").select("id,name").is_(
-            "user_id", "null"
+        # Valid category names + a name->id map. Includes the user's OWN
+        # categories: they had created Rent, Health and Petrol holding a sixth of
+        # all their spend, and a system-only list meant neither the rules nor the
+        # LLM could ever assign them.
+        cats = db.table("categories").select("id,name").or_(
+            f"user_id.is.null,user_id.eq.{user_id}"
         ).execute().data or []
         name_to_id = {c["name"]: c["id"] for c in cats}
         valid_names = [c["name"] for c in cats if c["name"] != "Other"]
@@ -149,6 +152,34 @@ async def recategorize(
             "raw_merchant,memo,category_id,categories(name)"
         ).eq("user_id", user_id).execute().data or []
 
+        # Merchants the user has already decided by hand are OFF LIMITS here. Two
+        # ways this used to destroy their work: `_apply` updates every row of a
+        # merchant with no category filter, so a merchant with a mix of "Other" and
+        # hand-corrected rows had the corrected ones overwritten; and its
+        # learning_records upsert would replace the stored decision itself with a
+        # machine guess, which is the only durable record of what they chose.
+        decided: set[str] = set()
+        try:
+            decided = {
+                r["raw_merchant"]
+                for r in (
+                    db.table("learning_records").select("raw_merchant").eq(
+                        "user_id", user_id
+                    ).eq("source", "user").execute().data
+                    or []
+                )
+                if r.get("raw_merchant")
+            }
+        except Exception as e:
+            # Fail closed: if we can't tell what the user decided, don't touch
+            # anything rather than risk overwriting it.
+            logger.warning("[categorizer] could not load user decisions: %s", e)
+            return {
+                "status": "skipped",
+                "reason": "Could not read your saved corrections, so nothing was "
+                          "changed. Try again in a moment.",
+            }
+
         needy: dict[str, str | None] = {}
         for r in rows:
             cat = r.get("categories")
@@ -156,7 +187,7 @@ async def recategorize(
                 cat = cat[0] if cat else None
             cat_name = cat.get("name") if isinstance(cat, dict) else None
             merchant = r.get("raw_merchant")
-            if (cat_name in (None, "Other")) and merchant:
+            if (cat_name in (None, "Other")) and merchant and merchant not in decided:
                 needy.setdefault(merchant, r.get("memo"))
 
         if not needy:
@@ -167,21 +198,39 @@ async def recategorize(
                 "message": "Nothing to recategorize — no 'Other'/uncategorized transactions.",
             }
 
-        def _apply(merchant: str, category: str, confidence: float) -> int:
+        other_id = name_to_id.get("Other")
+
+        def _apply(merchant: str, category: str, confidence: float, source: str) -> int:
             category_id = name_to_id.get(category)
             if not category_id:
                 return 0
             upd = db.table("transactions").update(
                 {"category_id": category_id, "confidence_score": confidence}
-            ).eq("user_id", user_id).eq("raw_merchant", merchant).execute()
+            ).eq("user_id", user_id).eq("raw_merchant", merchant)
+            # Only the rows that actually need help. Belt and braces behind the
+            # `decided` exclusion above: even for a merchant we're allowed to touch,
+            # never relabel a row that already carries a real category.
+            if other_id:
+                upd = upd.or_(f"category_id.is.null,category_id.eq.{other_id}")
+            else:
+                upd = upd.is_("category_id", "null")
+            result = upd.execute()
             try:
+                # `source` marks this as a GUESS, so it stays a cache that future
+                # rule improvements can override — and can never be mistaken for
+                # something the user chose.
                 db.table("learning_records").upsert(
-                    {"user_id": user_id, "raw_merchant": merchant, "category_id": category_id},
+                    {
+                        "user_id": user_id,
+                        "raw_merchant": merchant,
+                        "category_id": category_id,
+                        "source": source,
+                    },
                     on_conflict="user_id,raw_merchant",
                 ).execute()
             except Exception as e:
                 logger.warning("[categorizer] learning_record upsert failed for %s: %s", merchant, e)
-            return len(upd.data or [])
+            return len(result.data or [])
 
         # Pass 1 — deterministic (no LLM). Fast, pure, no per-merchant DB reads.
         det_updated = 0
@@ -190,7 +239,7 @@ async def recategorize(
         for merchant, memo in needy.items():
             hit = rule_category(merchant, memo)
             if hit and hit[0] in name_to_id:
-                det_updated += _apply(merchant, hit[0], hit[1])
+                det_updated += _apply(merchant, hit[0], hit[1], "rule")
                 det_merchants += 1
             else:
                 remaining.append(merchant)
@@ -203,7 +252,7 @@ async def recategorize(
             unique = remaining[:_MAX_UNIQUE_MERCHANTS]
             mapping = await llm_categorize_merchants(unique, valid_names)
             for merchant, category in mapping.items():
-                n = _apply(merchant, category, 0.9)
+                n = _apply(merchant, category, 0.9, "llm")
                 if n:
                     llm_updated += n
                     llm_merchants += 1
