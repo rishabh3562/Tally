@@ -58,6 +58,12 @@ class _Q:
     def limit(self, *a, **k):
         return self
 
+    def insert(self, row):
+        # chat_traces / chat_messages writes: accept them so the streaming test
+        # exercises the real save path instead of a swallowed AttributeError.
+        self._rows.append(row)
+        return self
+
     def execute(self):
         rows = self._rows
         uid = self._eq.get("user_id")
@@ -132,3 +138,38 @@ def test_chat_messages_history_endpoint(client):
     r = client.get("/api/chat/messages")
     assert r.status_code == 200
     assert r.json() == {"data": []}
+
+
+def test_chat_streams_through_the_real_endpoint(client, monkeypatch):
+    """The closest thing to a browser: POST /api/chat and read the raw SSE body.
+
+    Every other chat test calls the generator directly, so nothing covered
+    route -> StreamingResponse -> generator, which is exactly where a framing
+    mistake would only show up in the browser. "help" takes the instant path, so
+    no model is involved.
+    """
+    r = client.post("/api/chat", json={"question": "help"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+
+    body = r.text
+    # Reassemble the way useChat.ts does: track the event name, keep status out of
+    # the answer, and turn the two-character newline escape back into a real one.
+    escaped_newline = chr(92) + "n"
+    answer, statuses, event_name = "", [], ""
+    for line in body.split("\n"):
+        if line.startswith("event: "):
+            event_name = line[7:].strip()
+        elif line.startswith("data: "):
+            payload = line[6:]
+            if event_name == "status":
+                statuses.append(payload)
+            else:
+                answer += payload.replace(escaped_newline, "\n")
+        elif line == "":
+            event_name = ""
+
+    assert "Try:" in answer                  # the capability menu came through
+    assert answer.count("\n") >= 5           # and it's still a list, not one line
+    for s in statuses:
+        assert s not in answer               # progress never leaks into the answer
