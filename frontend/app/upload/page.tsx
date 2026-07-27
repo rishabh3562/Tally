@@ -79,7 +79,7 @@ export default function UploadPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-4xl font-bold text-gray-900 mb-8">Upload Bank Statement</h1>
+      <h1 className="text-2xl font-bold text-gray-900 md:text-4xl mb-8">Upload Bank Statement</h1>
 
       {!jobId ? (
         <form onSubmit={handleUpload} className="bg-white rounded-lg shadow p-8">

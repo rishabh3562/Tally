@@ -74,8 +74,8 @@ export default function JobDetailPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-4xl font-bold text-gray-900">Import Job</h1>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Import Job</h1>
         <Link href="/jobs" className="text-blue-600 hover:text-blue-700 font-medium">
           ← Back to Jobs
         </Link>

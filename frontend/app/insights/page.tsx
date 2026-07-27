@@ -179,7 +179,7 @@ export default function InsightsPage() {
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-4xl font-bold text-gray-900">Insights</h1>
+        <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Insights</h1>
         <button
           onClick={() => recategorizeMutation.mutate()}
           disabled={recategorizeMutation.isPending}

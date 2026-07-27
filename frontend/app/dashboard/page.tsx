@@ -136,7 +136,7 @@ export default function DashboardPage() {
 
   const DashboardHeader = () => (
     <div className="flex items-center justify-between">
-      <h1 className="text-4xl font-bold text-gray-900">Dashboard</h1>
+      <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Dashboard</h1>
       <Link
         href="/upload"
         className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition"

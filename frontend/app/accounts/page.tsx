@@ -114,7 +114,7 @@ export default function AccountsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900">My Accounts</h1>
+          <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">My Accounts</h1>
           <p className="text-gray-600 mt-1">Manage your bank accounts and financial profiles</p>
         </div>
         <button

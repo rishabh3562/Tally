@@ -101,7 +101,7 @@ export default function ChatTracesPage() {
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900">Chat traces</h1>
+          <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Chat traces</h1>
           <p className="text-gray-500 mt-1">
             Exactly what the assistant did for each question — the tools it called,
             the real data it got, and how the answer was produced.

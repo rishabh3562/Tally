@@ -55,7 +55,7 @@ export default function ChatPage() {
     <div className="max-w-4xl mx-auto h-full flex flex-col">
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900">Ask About Your Finances</h1>
+          <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Ask About Your Finances</h1>
           <p className="text-gray-600 mt-2">
             Ask about your spending — or tell me to categorize merchants and create
             categories, and I&apos;ll do it.

@@ -108,10 +108,42 @@ function TransactionRow({
     applyMutation.isError &&
     (applyMutation.error as any)?.response?.status !== 401;
 
+  // Rendered twice — in the Category column on desktop, and folded under the
+  // merchant on mobile (where that column is hidden). Same component instance,
+  // so both drive the one mutation; only one is ever displayed.
+  const categoryControl = (
+    <div className="flex items-center gap-2">
+      <select
+        value={tx.category_id ?? ""}
+        onChange={(e) =>
+          e.target.value && categoryMutation.mutate(e.target.value)
+        }
+        disabled={categoryMutation.isPending || categories.length === 0}
+        className="max-w-[11rem] rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 disabled:opacity-50"
+        aria-label={`Category for ${tx.raw_merchant}`}
+      >
+        <option value="" disabled>
+          Uncategorized
+        </option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.icon ? `${c.icon} ` : ""}
+            {c.name}
+          </option>
+        ))}
+      </select>
+      {savedHint && (
+        <span className="whitespace-nowrap text-xs font-medium text-green-600">
+          ✓ Remembered
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <>
       <tr className="hover:bg-gray-50">
-        <td className="px-4 py-4">
+        <td className="px-3 py-4 align-top md:px-4 md:align-middle">
           <input
             type="checkbox"
             checked={selected}
@@ -120,51 +152,31 @@ function TransactionRow({
             aria-label={`Select transaction ${tx.raw_merchant}`}
           />
         </td>
-        <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
+        <td className="hidden whitespace-nowrap px-6 py-4 text-sm text-gray-900 md:table-cell">
           {formatDate(tx.date)}
         </td>
-        <td className="px-6 py-4 text-sm text-gray-900">
-          {tx.raw_merchant}
+        <td className="px-3 py-4 align-top text-sm text-gray-900 md:px-6 md:align-middle">
+          <span className="break-words">{tx.raw_merchant}</span>
           {tx.memo && (
             <span className="block text-xs text-gray-400">{tx.memo}</span>
           )}
+          {/* Mobile only: the columns we drop, folded into this cell. */}
+          <span className="mt-0.5 block text-xs text-gray-500 md:hidden">
+            {formatDate(tx.date)}
+          </span>
+          <div className="mt-2 md:hidden">{categoryControl}</div>
         </td>
         <td
-          className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
+          className={`whitespace-nowrap px-3 py-4 text-right align-top text-sm font-medium md:px-6 md:text-left md:align-middle ${
             isCredit ? "text-green-600" : "text-gray-900"
           }`}
         >
           {formatCurrency(tx.amount)}
         </td>
-        <td className="px-6 py-4 whitespace-nowrap">
-          <div className="flex items-center gap-2">
-            <select
-              value={tx.category_id ?? ""}
-              onChange={(e) =>
-                e.target.value && categoryMutation.mutate(e.target.value)
-              }
-              disabled={categoryMutation.isPending || categories.length === 0}
-              className="text-sm text-gray-900 border border-gray-300 rounded-lg px-2 py-1 bg-white max-w-[11rem] disabled:opacity-50"
-              aria-label={`Category for ${tx.raw_merchant}`}
-            >
-              <option value="" disabled>
-                Uncategorized
-              </option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.icon ? `${c.icon} ` : ""}
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            {savedHint && (
-              <span className="text-xs font-medium text-green-600 whitespace-nowrap">
-                ✓ Remembered
-              </span>
-            )}
-          </div>
+        <td className="hidden whitespace-nowrap px-6 py-4 md:table-cell">
+          {categoryControl}
         </td>
-        <td className="px-6 py-4 text-right whitespace-nowrap">
+        <td className="whitespace-nowrap px-3 py-4 text-right align-top md:px-6 md:align-middle">
           <button
             onClick={() => {
               if (showPanel) {
@@ -183,7 +195,12 @@ function TransactionRow({
             ) : (
               <Sparkles className="w-4 h-4" />
             )}
-            {suggestMutation.isPending ? "Thinking…" : "Suggest"}
+            <span className="hidden sm:inline">
+              {suggestMutation.isPending ? "Thinking…" : "Suggest"}
+            </span>
+            <span className="sr-only sm:hidden">
+              Suggest a category for {tx.raw_merchant}
+            </span>
           </button>
         </td>
       </tr>
@@ -474,8 +491,8 @@ export default function TransactionsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-4xl font-bold text-gray-900">Transactions</h1>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Transactions</h1>
         <div className="flex items-center gap-4">
           <button
             type="button"
@@ -680,11 +697,11 @@ export default function TransactionsPage() {
 
       {/* Selection / club action bar */}
       {selectedCount > 0 && (
-        <div className="sticky top-0 z-10 bg-blue-600 text-white rounded-lg shadow px-5 py-3 mb-4 flex items-center justify-between">
+        <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg bg-blue-600 px-4 py-3 text-white shadow sm:px-5">
           <span className="font-medium">
             {selectedCount} selected
           </span>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => setSelected(new Set())}
               className="text-sm text-blue-100 hover:text-white"
@@ -718,11 +735,11 @@ export default function TransactionsPage() {
       )}
 
       {/* Transactions Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="overflow-x-auto rounded-lg bg-white shadow">
         <table className="w-full">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="px-4 py-3 w-10">
+              <th className="w-10 px-3 py-3 md:px-4">
                 <input
                   type="checkbox"
                   checked={allOnPageSelected}
@@ -732,7 +749,7 @@ export default function TransactionsPage() {
                   aria-label="Select all on this page"
                 />
               </th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+              <th className="hidden px-6 py-3 text-left text-sm font-medium text-gray-700 md:table-cell">
                 <button
                   type="button"
                   onClick={() => toggleSort("date")}
@@ -741,10 +758,19 @@ export default function TransactionsPage() {
                   Date{sortArrow("date")}
                 </button>
               </th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                Merchant
+              <th className="px-3 py-3 text-left text-sm font-medium text-gray-700 md:px-6">
+                <span className="md:hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("date")}
+                    className="font-medium text-gray-700 hover:text-gray-900"
+                  >
+                    Merchant · Date{sortArrow("date")}
+                  </button>
+                </span>
+                <span className="hidden md:inline">Merchant</span>
               </th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+              <th className="px-3 py-3 text-right text-sm font-medium text-gray-700 md:px-6 md:text-left">
                 <button
                   type="button"
                   onClick={() => toggleSort("amount")}
@@ -753,10 +779,10 @@ export default function TransactionsPage() {
                   Amount{sortArrow("amount")}
                 </button>
               </th>
-              <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+              <th className="hidden px-6 py-3 text-left text-sm font-medium text-gray-700 md:table-cell">
                 Category
               </th>
-              <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">
+              <th className="px-3 py-3 text-right text-sm font-medium text-gray-700 md:px-6">
                 AI
               </th>
             </tr>

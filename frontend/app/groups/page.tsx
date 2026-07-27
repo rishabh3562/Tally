@@ -92,8 +92,8 @@ export default function GroupsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-4xl font-bold text-gray-900">Groups</h1>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Groups</h1>
         <button
           onClick={() => autoClubMutation.mutate()}
           disabled={autoClubMutation.isPending}
