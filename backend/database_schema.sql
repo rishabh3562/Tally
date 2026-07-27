@@ -3,7 +3,10 @@
 
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgvector";
+-- The Postgres extension is named `vector`; "pgvector" is the project name and
+-- fails here. Only the `notes` table below needs it, and nothing reads that table
+-- yet — kept so a fresh database matches the live one.
+CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- Users table (extends Supabase Auth)
 CREATE TABLE IF NOT EXISTS users (
@@ -165,22 +168,34 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Chat conversation history
-CREATE TABLE IF NOT EXISTS chat_conversations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  title TEXT DEFAULT 'Conversation',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
+-- Chat history: a flat per-user message log (migration 004). There is NO
+-- conversation_id and no conversations table — the app has one implicit thread
+-- per user. The previous definition here required `conversation_id NOT NULL`,
+-- which the app never sets, so on a freshly provisioned database EVERY chat
+-- message insert failed.
 CREATE TABLE IF NOT EXISTS chat_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id UUID NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role TEXT CHECK (role IN ('user', 'assistant')),
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   content TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Chat observability (migration 003): one row per turn — the question, the exact
+-- tool calls and their results, the answer, and how it was produced. This backs
+-- /chat/traces and the "why?" panel under each answer. It was missing from this
+-- file entirely, so a fresh database 500'd on every chat turn.
+CREATE TABLE IF NOT EXISTS chat_traces (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  question     TEXT,
+  steps        JSONB,          -- [{tool, args, result}, ...] the agent executed
+  answer       TEXT,
+  source       TEXT,           -- agent | instant | deterministic | error-fallback | failed
+  action_taken BOOLEAN DEFAULT FALSE,
+  error        TEXT,
+  duration_ms  INTEGER
 );
 
 -- Create indexes for performance
@@ -198,6 +213,8 @@ CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_user_id ON processing_jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_file_hash ON processing_jobs(file_hash);
 CREATE INDEX IF NOT EXISTS idx_transaction_groups_user ON transaction_groups(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_traces_user ON chat_traces(user_id, created_at DESC);
 
 -- Enable RLS (Row-Level Security)
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -210,8 +227,8 @@ ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE learning_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE processing_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transaction_groups ENABLE ROW LEVEL SECURITY;
-ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_traces ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies - Users can only see their own data
 CREATE POLICY "Users see own data" ON transactions FOR ALL USING (auth.uid() = user_id);
@@ -225,8 +242,8 @@ CREATE POLICY "Users see own notes" ON notes FOR ALL USING (auth.uid() = user_id
 CREATE POLICY "Users see own learning records" ON learning_records FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users see own processing jobs" ON processing_jobs FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users see own groups" ON transaction_groups FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "Users see own conversations" ON chat_conversations FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users see own messages" ON chat_messages FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users see own traces" ON chat_traces FOR ALL USING (auth.uid() = user_id);
 
 -- Seed system categories (these are global, not user-specific)
 INSERT INTO categories (name, icon, user_id) VALUES
