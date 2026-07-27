@@ -83,7 +83,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         """Get CORS origins as list."""
-        return [origin.strip() for origin in self.cors_origins.split(",")]
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        """True when deployed. Drives the few behaviours that must differ from a
+        laptop — interactive API docs are exposed to anyone who finds the URL, and
+        the browsable schema is a map of every endpoint."""
+        return self.environment.strip().lower() in {"production", "prod"}
 
     @property
     def gemini_keys_list(self) -> list[str]:

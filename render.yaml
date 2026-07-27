@@ -1,0 +1,41 @@
+# Render blueprint for the Tally backend.
+#
+# The frontend is NOT here — it goes to Vercel, because Next.js inlines every
+# NEXT_PUBLIC_* value at BUILD time and Vercel sets those before the build.
+# The database is the existing hosted Supabase project.
+#
+# Every secret is `sync: false`: Render prompts for it and stores it encrypted,
+# so nothing sensitive lives in this file.
+
+services:
+  - type: web
+    name: tally-api
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production          # also disables /docs and /openapi.json
+      - key: DEBUG
+        value: "false"
+      # Must list the Vercel origin(s) exactly, comma-separated, no trailing slash
+      # — e.g. https://tally.vercel.app,https://tally-git-main-you.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      # Service-role / sb_secret_… key. BYPASSES row-level security — server only,
+      # never expose it to the browser.
+      - key: SUPABASE_KEY
+        sync: false
+      # Comma-separated Google AI Studio keys (rotated on 429). Without these the
+      # chat falls back to OpenRouter's free model, which was measured at up to
+      # 78s per answer.
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: SUPABASE_STATEMENTS_BUCKET
+        value: statements

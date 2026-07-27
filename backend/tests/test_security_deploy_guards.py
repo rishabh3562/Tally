@@ -164,3 +164,27 @@ def test_an_unknown_account_is_refused_too():
     db = _DB(ACCOUNTS)
     out, err = _upload("acct-nope", "A", db)
     assert out is None and err.status_code == 404
+
+
+# --- production posture -----------------------------------------------------
+
+@pytest.mark.parametrize("env,expected", [
+    ("production", True), ("PRODUCTION", True), ("prod", True),
+    ("development", False), ("staging", False), ("", False),
+])
+def test_is_production_detection(env, expected):
+    from app.core.config import Settings
+
+    s = Settings(environment=env, supabase_url="https://x.supabase.co", supabase_key="k")
+    assert s.is_production is expected
+
+
+def test_cors_origins_ignores_blank_entries():
+    """A trailing comma in the env var used to produce an empty allowed origin."""
+    from app.core.config import Settings
+
+    s = Settings(
+        supabase_url="https://x.supabase.co", supabase_key="k",
+        cors_origins="https://a.vercel.app, ,https://b.vercel.app,",
+    )
+    assert s.cors_origins_list == ["https://a.vercel.app", "https://b.vercel.app"]

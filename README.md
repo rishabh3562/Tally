@@ -76,33 +76,15 @@ For detailed folder structure, see:
 
 ### Prerequisites
 - Node.js 18+
-- Python 3.12+
-- Docker & Docker Compose
-- Supabase account
-- OpenRouter API key
+- Python 3.10+
+- Supabase account (hosts the database, auth and file storage)
+- A Google AI Studio key (preferred) or an OpenRouter key for the AI features
 
-### Option 1: Docker Compose (Recommended)
-```bash
-# Clone repository
-git clone https://github.com/rishabh3562/Tally.git
-cd Tally
+> There is no Docker Compose stack and no Redis/Celery. Ingestion runs in-process
+> and the database is reached over PostgREST, so the app is two processes: the
+> FastAPI backend and the Next.js frontend.
 
-# Set up environment variables
-cp frontend/.env.example frontend/.env.local
-cp backend/.env.example backend/.env
-
-# Edit .env files with your actual keys
-
-# Start the stack
-cd config
-docker-compose up -d
-```
-
-- Frontend: http://localhost:3000
-- Backend: http://localhost:8000/docs
-- Redis: localhost:6379
-
-### Option 2: Manual Setup (Recommended for Development)
+### Setup
 
 **Backend Setup:**
 ```bash
@@ -143,6 +125,63 @@ npm run dev
 
 The frontend will be available at **http://localhost:3000**  
 The backend API will be available at **http://localhost:8000**
+
+**Database:** run `backend/database_schema.sql` once in the Supabase SQL editor —
+it is idempotent and provisions every table, index, RLS policy and the system
+categories. Then create a **private** Storage bucket named `statements`.
+
+---
+
+## Deploying
+
+Three pieces: Supabase (already hosted) + the backend on Render + the frontend on
+Vercel. HTTPS matters beyond the padlock — a browser will only offer to *install*
+the app (it ships a web manifest) from a secure origin.
+
+### 1. Database
+Run `backend/database_schema.sql` on the target Supabase project. Create the
+private `statements` bucket.
+
+### 2. Backend → Render
+`render.yaml` in the repo root is a blueprint: **New → Blueprint**, point it at
+this repo, and Render builds `backend/Dockerfile`. It will prompt for the values
+marked `sync: false`:
+
+| Variable | Notes |
+|---|---|
+| `SUPABASE_URL` | the project URL |
+| `SUPABASE_KEY` | service-role / `sb_secret_…`. **Bypasses row-level security — server only.** Never ship it to the browser |
+| `CORS_ORIGINS` | your Vercel origin(s), comma-separated, **no trailing slash** |
+| `GEMINI_API_KEYS` | comma-separated Google AI Studio keys; rotated on 429 |
+| `OPENROUTER_API_KEY` | fallback provider |
+
+`ENVIRONMENT=production` is set for you, which also disables `/docs`, `/redoc`
+and `/openapi.json`. Health check is `/health`.
+
+### 3. Frontend → Vercel
+Import the repo, set **root directory** to `frontend`, and add three environment
+variables **before** the first build:
+
+```
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY      # the anon/publishable key, not the secret one
+NEXT_PUBLIC_API_URL                # https://<your-render-service>.onrender.com
+```
+
+Next.js **inlines** `NEXT_PUBLIC_*` at build time, so a value added afterwards
+needs a redeploy to take effect — and passing them only as runtime env produces a
+bundle with `undefined` in it.
+
+### 4. Close the loop
+Set `CORS_ORIGINS` on Render to the Vercel URL and redeploy the backend. Then, on
+your phone: open the site, and Chrome's ⋮ menu should offer **Install app**
+(iOS: Share → Add to Home Screen).
+
+### Notes
+- Render's free tier sleeps after inactivity, so the first request after a while
+  takes a few seconds to wake.
+- `infrastructure/terraform/` is an older AWS EC2 experiment, unused by the above
+  and kept only because local state may still reference real resources.
 
 See [DEVELOPMENT.md](./docs/DEVELOPMENT.md) for detailed setup instructions.
 

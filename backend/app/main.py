@@ -46,8 +46,11 @@ app = FastAPI(
     title="Personal Finance OS API",
     description="Intelligent bank statement ingestion, categorization & AI-powered insights",
     version="0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # Interactive docs are a convenience locally and an endpoint map for anyone who
+    # finds the deployed URL. Off in production (ENVIRONMENT=production).
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
     lifespan=lifespan,
 )
 
