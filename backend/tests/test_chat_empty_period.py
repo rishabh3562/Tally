@@ -279,3 +279,68 @@ def test_agent_leaves_the_answer_alone_when_one_tool_did_find_data(monkeypatch):
 
     out = asyncio.run(chat_agent.run_agent("june vs march", "u1", _DB(ROWS)))
     assert out == "You spent Rs 700 in March and Rs 0 in June."
+
+
+# --- the same problem one level down: the period has data, the CATEGORY doesn't --
+# Found live: "what about groceries that month?" -> "You spent Rs 0 on groceries in
+# May 2026." True, useless, and 91% of this data is still "Other" — so an empty
+# category answer is usually a labelling gap, and should say so.
+
+MIXED = [
+    _tx(21000, "2026-05-02", "Landlord", "Rent"),
+    _tx(9000, "2026-05-10", "SomeUpiName", "Other"),
+    _tx(500, "2026-05-11", "Swiggy", "Food & Dining"),
+]
+
+
+def test_tool_flags_a_category_with_no_rows_in_a_period_that_has_some():
+    res = chat_tools.get_spending_by_category(
+        _DB(MIXED), "u1", start="2026-05-01", end="2026-05-31", category="groceries",
+    )
+    assert res["no_data_for_category"] is True
+    assert res["category_requested"] == "groceries"
+    assert res["uncategorized_total"] == 9000
+    assert [c["name"] for c in res["categories_present"]][0] == "Rent"
+    # NOT the empty-period flag: the period itself has spending.
+    assert "no_data_in_period" not in res
+
+
+def test_tool_does_not_flag_a_category_that_has_rows():
+    res = chat_tools.get_spending_by_category(
+        _DB(MIXED), "u1", start="2026-05-01", end="2026-05-31", category="rent",
+    )
+    assert "no_data_for_category" not in res
+
+
+def test_deterministic_answer_says_what_is_there_instead():
+    out = chat_service.answer_question(
+        "how much did I spend on groceries in May 2026", "u1", _DB(MIXED),
+    )
+    assert "Nothing is tagged 'groceries' in May 2026" in out
+    assert "Rent — Rs 21,000" in out
+    assert "still uncategorised" in out
+    assert "Rs 0" not in out
+
+
+def test_agent_composes_the_empty_category_answer_itself(monkeypatch):
+    calls = {"n": 0}
+
+    async def fake_json(prompt, **_):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {
+                "action": "call_tool",
+                "tool": "get_spending_by_category",
+                "args": {"start": "2026-05-01", "end": "2026-05-31",
+                         "category": "groceries"},
+            }
+        return {"action": "final", "answer": "You spent Rs 0 on groceries in May 2026."}
+
+    monkeypatch.setattr(chat_agent.llm_client, "is_available", lambda: True)
+    monkeypatch.setattr(chat_agent.llm_client, "acomplete_json", fake_json)
+
+    out = asyncio.run(
+        chat_agent.run_agent("groceries in may?", "u1", _DB(MIXED))
+    )
+    assert "Nothing is tagged 'groceries' in May 2026" in out
+    assert "Rs 0" not in out

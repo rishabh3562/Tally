@@ -165,6 +165,30 @@ def _empty_period_answer(transcript: list[dict[str, Any]]) -> str | None:
     )
 
 
+def _empty_category_answer(transcript: list[dict[str, Any]]) -> str | None:
+    """Server-composed answer for "nothing is tagged X in that period".
+
+    Same reasoning as `_empty_period_answer`: the model reads an empty list and
+    reports "Rs 0 on groceries", which is true and useless. Verified live — that
+    is exactly what it said.
+    """
+    for entry in reversed(transcript):
+        res = entry.get("result")
+        if not isinstance(res, dict) or not res.get("no_data_for_category"):
+            continue
+        present = [
+            (str(r.get("name")), float(r.get("total") or 0))
+            for r in res.get("categories_present") or []
+        ]
+        return chat_service.empty_category_sentence(
+            str(res.get("category_requested") or "that category"),
+            chat_service._pretty_period(res.get("period_start"), res.get("period_end")),
+            present,
+            float(res.get("uncategorized_total") or 0),
+        )
+    return None
+
+
 def _normalize_currency(text: str) -> str:
     """Force INR presentation. Weak free-tier models often ignore the 'use Rs'
     instruction and emit '$' or the rupee sign, which is misleading in this
@@ -175,11 +199,38 @@ def _normalize_currency(text: str) -> str:
     return text
 
 
-def _selection_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
+def _history_block(turns: list[dict[str, str]]) -> str:
+    """Earlier turns of THIS conversation, for the tool-selection prompt only.
+
+    Deliberately not given to the answer prompt: history is what makes "and what
+    about April?" resolvable, but if the model could see old figures it would
+    happily restate them, and `_verify_figures` (which only knows THIS turn's tool
+    results) would reject the answer and fall back. So history decides what to
+    look up; only tool results decide what is said.
+    """
+    if not turns:
+        return ""
+    lines = [
+        f"{'User' if t.get('role') == 'user' else 'Assistant'}: "
+        f"{str(t.get('content') or '')[:240]}"
+        for t in turns
+    ]
+    return (
+        "\n\nEarlier in this conversation (use it to resolve references like "
+        '"that", "it", "and what about April?" — but ALWAYS call a tool for the '
+        "figures):\n" + "\n".join(lines)
+    )
+
+
+def _selection_prompt(
+    question: str,
+    transcript: list[dict[str, Any]],
+    turns: list[dict[str, str]] | None = None,
+) -> str:
     today = date.today().isoformat()
-    history = ""
+    history = _history_block(turns or [])
     if transcript:
-        history = "\n\nTool results so far (use these; do not re-call the same tool):\n" + json.dumps(
+        history += "\n\nTool results so far (use these; do not re-call the same tool):\n" + json.dumps(
             transcript, default=str
         )[:1500]
     return (
@@ -247,6 +298,7 @@ def _run_tool(name: str, args: dict[str, Any], question: str, user_id: str, db: 
 async def run_agent(
     question: str, user_id: str, db: Client, max_steps: int = DEFAULT_MAX_STEPS,
     trace: list[dict[str, Any]] | None = None,
+    turns: list[dict[str, str]] | None = None,
 ) -> str:
     """Answer ``question`` by letting the model drive tool calls over real data.
 
@@ -263,7 +315,8 @@ async def run_agent(
     for step in range(max_steps):
         try:
             decision = await llm_client.acomplete_json(
-                _selection_prompt(question, transcript), max_tokens=_TOOL_MAX_TOKENS
+                _selection_prompt(question, transcript, turns),
+                max_tokens=_TOOL_MAX_TOKENS,
             )
         except Exception as e:
             logger.warning("agent selection step %d failed: %s", step, e)
@@ -279,7 +332,7 @@ async def run_agent(
             confirmation = _action_confirmation(transcript)
             if confirmation:
                 return _normalize_currency(confirmation)
-            empty = _empty_period_answer(transcript)
+            empty = _empty_period_answer(transcript) or _empty_category_answer(transcript)
             if empty:
                 return empty
             answer = str(decision.get("answer", "")).strip()
@@ -310,8 +363,8 @@ async def run_agent(
     if confirmation:
         return _normalize_currency(confirmation)
 
-    # Same for an empty period: the wording is ours, not the model's.
-    empty = _empty_period_answer(transcript)
+    # Same for an empty period or an empty category: the wording is ours.
+    empty = _empty_period_answer(transcript) or _empty_category_answer(transcript)
     if empty:
         return empty
 

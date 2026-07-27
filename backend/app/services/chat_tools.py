@@ -113,15 +113,32 @@ def get_spending_by_category(
          for k, v in totals.items()),
         key=lambda r: r["total"], reverse=True,
     )
+    all_rows = rows
     if category:
         cl = category.lower()
         rows = [r for r in rows if cl in r["name"].lower()]
-    return {
+    out = {
         "period": _period_label(start, end),
         "categories": rows[:_MAX_ROWS],
         "total_spent": round(sum(r["total"] for r in rows), 2),
         **_empty_period_flag(db, user_id, start, end, len(spend)),
     }
+    # The period has spending but NOT in the asked-for category: the second shape
+    # of the Rs 0 problem. Hand the model what IS there so the answer can be
+    # useful, and let chat_agent compose it rather than trusting a weak model to
+    # interpret an empty list.
+    if category and not rows and all_rows:
+        out.update({
+            "no_data_for_category": True,
+            "category_requested": category,
+            "period_start": start,
+            "period_end": end,
+            "categories_present": all_rows[:_MAX_ROWS],
+            "uncategorized_total": next(
+                (r["total"] for r in all_rows if r["name"] == "Other"), 0.0
+            ),
+        })
+    return out
 
 
 def get_top_merchants(

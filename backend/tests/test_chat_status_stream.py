@@ -80,7 +80,9 @@ def test_every_event_is_correctly_framed():
 
 def test_a_slow_answer_reports_progress_before_the_answer(monkeypatch):
     async def slow(*a, **k):
-        await asyncio.sleep(3.2)
+        # Long enough to outlast both patched progress steps, short enough that the
+        # suite doesn't pay for it.
+        await asyncio.sleep(0.5)
         return "Done."
 
     monkeypatch.setattr(cs, "_resolve_answer", slow)

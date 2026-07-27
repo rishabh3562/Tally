@@ -317,6 +317,34 @@ def empty_period_sentence(
     )
 
 
+def empty_category_sentence(
+    category: str,
+    period: str,
+    present: list[tuple[str, float]],
+    uncategorized: float = 0.0,
+) -> str:
+    """The one wording for "nothing is tagged X in that period".
+
+    A period that HAS spending but nothing in the asked-for category is the second
+    shape of the Rs 0 problem: "You spent Rs 0 on groceries in May 2026" is true
+    and useless. Say what IS there instead, and — because 91% of this data is still
+    "Other" — say when the answer is really a labelling gap.
+    """
+    head = f"Nothing is tagged '{category}' in {period}."
+    if not present:
+        return f"{head} There's no spending in that period at all."
+    out = _listing(
+        f"{head} Here's where that period's money went:",
+        [f"{name} — {_rupees(amount)}" for name, amount in present[:5]],
+    )
+    if uncategorized > 0:
+        out += (
+            f"\n{_rupees(uncategorized)} of it is still uncategorised — labelling "
+            "those merchants in Triage would make this answerable."
+        )
+    return out
+
+
 def empty_period_answer(
     db: Client, user_id: str, start: Optional[str], end: Optional[str]
 ) -> str:
@@ -425,7 +453,13 @@ def _answer_total_by_category(txns: list[dict], question: str, period: str) -> s
         matched = [t for t in spend if category in _category_name(t).lower()]
         total = sum(float(t["amount"]) for t in matched)
         if not matched:
-            return f"I found no spending tagged '{category}' for {period}."
+            present: dict[str, float] = defaultdict(float)
+            for t in spend:
+                present[_category_name(t)] += float(t["amount"])
+            ranked = sorted(present.items(), key=lambda kv: kv[1], reverse=True)
+            return empty_category_sentence(
+                category, period, ranked, present.get("Other", 0.0)
+            )
         answer = (
             f"You spent {_rupees(total)} on {category} across {len(matched)} "
             f"transactions ({period})."
@@ -1297,7 +1331,12 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
         return await rephrase(question, answer_question(question, user_id, db))
 
     try:
-        answer = await chat_agent.run_agent(question, user_id, db, trace=steps)
+        # Only the agent path needs conversation history, so instant answers pay
+        # nothing for it.
+        answer = await chat_agent.run_agent(
+            question, user_id, db, trace=steps,
+            turns=recent_turns(db, user_id),
+        )
     except chat_agent.AgentUnavailable as e:
         logger.info("chat agent unavailable, using deterministic path: %s", e)
         source, error = "deterministic", str(e)
@@ -1327,6 +1366,37 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
         int((time.monotonic() - started) * 1000),
     )
     return answer
+
+
+def recent_turns(db: Client, user_id: str, limit: int = 4) -> list[dict[str, str]]:
+    """The last few messages of this user's conversation, oldest first.
+
+    Gives the agent enough context to resolve a follow-up ("and what about
+    April?"), which was impossible before: `chat_messages` was written for the UI
+    only and no prior turn ever reached the model. Kept small on purpose — a weak
+    free-tier model gets worse, not better, with a long transcript.
+    """
+    try:
+        rows = (
+            db.table("chat_messages")
+            .select("role,content,created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(max(0, limit))
+            .execute()
+            .data
+            or []
+        )
+    except Exception as e:  # pragma: no cover - history is best-effort
+        logger.warning("could not load chat history: %s", e)
+        return []
+    turns = [
+        {"role": str(r.get("role") or "user"), "content": str(r.get("content") or "")}
+        for r in rows
+        if r.get("content")
+    ]
+    turns.reverse()  # oldest first, the order a conversation reads in
+    return turns
 
 
 def _save_messages(db: Client, user_id: str, question: str, answer: str) -> None:
