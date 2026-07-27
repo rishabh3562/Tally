@@ -1134,6 +1134,31 @@ def try_action(
     return None
 
 
+# Question shapes answered deterministically even when an LLM IS available.
+#
+# Everything in this tuple has a dedicated handler that is strictly better than
+# asking the model: it returns a verified structured answer in ~200ms instead of
+# ~6s, and in two cases the agent has no tool that could answer at all — nothing
+# exposes data coverage ("how many transactions do I have"), and the only average
+# tool is monthly, so "per day" would come back in the wrong unit. General
+# "how much did I spend on X in Y" questions are NOT here: the model handles
+# arbitrary phrasing and typos better, and its figures are tool-verified.
+_DETERMINISTIC_FIRST = (
+    _is_capability_query,
+    _is_coverage_query,
+    _is_habit_query,
+    _is_recurring_query,
+    _is_change_query,
+    _is_average_query,        # includes the per-day variant
+    _is_daily_average_query,
+)
+
+
+def prefers_deterministic(question: str) -> bool:
+    """True when a dedicated handler beats the model for this question shape."""
+    return any(matches(question) for matches in _DETERMINISTIC_FIRST)
+
+
 async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     """Answer a question: try the agentic path, fall back to the deterministic one.
 
@@ -1141,6 +1166,9 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     user's real data. If no LLM is configured or the loop can't produce an answer,
     we fall back to the keyword-based deterministic ``answer_question`` (optionally
     rephrased) so the feature never regresses to an error.
+
+    A narrow set of question shapes (``prefers_deterministic``) skips the model
+    entirely — see the note on ``_DETERMINISTIC_FIRST``.
 
     Every turn is recorded to ``chat_traces`` (question, tool steps, answer, how it
     was produced) so we can inspect *why* the chat said what it did.
@@ -1152,6 +1180,16 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     source = "agent"
     error: str | None = None
     started = time.monotonic()
+
+    if prefers_deterministic(question):
+        # No rephrase: these answers are menus and structured listings, and the
+        # model's job here would only be to make them worse.
+        answer = answer_question(question, user_id, db)
+        _record_trace(
+            db, user_id, question, steps, answer, "instant", None,
+            int((time.monotonic() - started) * 1000),
+        )
+        return answer
 
     async def _fallback() -> str:
         # Actions work deterministically even with no LLM. Their confirmation is

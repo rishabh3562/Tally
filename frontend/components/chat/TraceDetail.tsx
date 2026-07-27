@@ -5,6 +5,7 @@ import type { ChatTrace, ChatTraceStep } from "@/types";
 
 const SOURCE_STYLES: Record<ChatTrace["source"], string> = {
   agent: "bg-indigo-50 text-indigo-700",
+  instant: "bg-emerald-50 text-emerald-700",
   deterministic: "bg-gray-100 text-gray-600",
   "error-fallback": "bg-red-50 text-red-700",
   failed: "bg-red-100 text-red-800",
@@ -87,6 +88,19 @@ export function TraceSteps({ steps }: { steps: ChatTraceStep[] }) {
 /** One-line explanation of HOW the answer was produced, in plain words. */
 export function SourceNote({ trace }: { trace: ChatTrace }) {
   if (trace.source === "agent") return null;
+
+  // "instant" is a deliberate shortcut, not a degraded answer — this question has
+  // a dedicated handler that's faster and more precise than asking the model. Say
+  // so in green; the amber note below is for when the model was actually missing.
+  if (trace.source === "instant") {
+    return (
+      <p className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
+        Answered straight from your data — no AI needed for this one
+        {trace.duration_ms != null ? ` (${trace.duration_ms} ms)` : ""}.
+      </p>
+    );
+  }
+
   const text =
     trace.source === "failed"
       ? "This question could not be answered at all"

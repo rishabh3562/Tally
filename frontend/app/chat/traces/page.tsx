@@ -55,9 +55,13 @@ export default function ChatTracesPage() {
   });
 
   const traces = data ?? [];
-  // If the most recent turn didn't use the AI agent, the chat is almost certainly
-  // running keyless — the single most useful thing to surface.
-  const runningWithoutAi = traces.length > 0 && traces[0].source !== "agent";
+  // If the most recent turn FELL BACK, the chat is almost certainly running
+  // keyless — the single most useful thing to surface. "instant" doesn't count:
+  // that shape of question is answered without the model deliberately.
+  const runningWithoutAi =
+    traces.length > 0 &&
+    traces[0].source !== "agent" &&
+    traces[0].source !== "instant";
 
   return (
     <div className="max-w-3xl mx-auto">
