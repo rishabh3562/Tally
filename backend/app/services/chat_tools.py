@@ -395,7 +395,10 @@ def categorize_merchant(
         updated += len(upd.data or [])
         try:
             db.table("learning_records").upsert(
-                {"user_id": user_id, "raw_merchant": m, "category_id": match["id"]},
+                # Told to us in words by the user, so it counts as their decision
+                # and outranks the rule engine from here on.
+                {"user_id": user_id, "raw_merchant": m,
+                 "category_id": match["id"], "source": "user"},
                 on_conflict="user_id,raw_merchant",
             ).execute()
         except Exception as e:

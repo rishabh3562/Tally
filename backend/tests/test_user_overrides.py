@@ -201,3 +201,110 @@ def test_categorize_transaction_falls_back_to_other():
         "MOHANLALSHARMA", 100.0, None, db, "A",
     ))
     assert (name, conf) == ("Other", 0.5)
+
+
+# --- /api/learning/reapply --------------------------------------------------
+
+class _ReapplyQ:
+    def __init__(self, store, table):
+        self._store, self._table = store, table
+        self._eq, self._in, self._payload = {}, None, None
+        self._op = "select"
+
+    def select(self, *a, **k):
+        return self
+
+    def update(self, payload):
+        self._op, self._payload = "update", payload
+        return self
+
+    def eq(self, col, val):
+        self._eq[col] = val
+        return self
+
+    def in_(self, col, vals):
+        self._in = (col, list(vals))
+        return self
+
+    def execute(self):
+        if self._op == "update":
+            ids = self._in[1] if self._in else []
+            touched = [r for r in self._store["transactions"]
+                       if r["id"] in ids and r["user_id"] == self._eq.get("user_id")]
+            for r in touched:
+                r.update(self._payload)
+            self._store["updates"].append({"payload": self._payload, "ids": ids})
+            return _Res(touched)
+        rows = [r for r in self._store[self._table]
+                if all(r.get(k) == v for k, v in self._eq.items())]
+        return _Res(rows)
+
+
+class _ReapplyDB:
+    def __init__(self, store):
+        self._store = store
+
+    def table(self, name):
+        return _ReapplyQ(self._store, name)
+
+
+def _store():
+    return {
+        "learning_records": [
+            {"user_id": "A", "raw_merchant": "SWIGGYINSTAMART",
+             "category_id": "food", "source": "user"},
+            {"user_id": "A", "raw_merchant": "DMART", "category_id": "guess",
+             "source": "rule"},
+        ],
+        "transactions": [
+            # Drifted: a rule labelled it Groceries after the user chose Food.
+            {"id": "t1", "user_id": "A", "raw_merchant": "SWIGGYINSTAMART",
+             "category_id": "groceries"},
+            # The longer variant of the same merchant, also drifted.
+            {"id": "t2", "user_id": "A", "raw_merchant": "SWIGGYINSTAMARTPRIVATELIMITED",
+             "category_id": "groceries"},
+            # Already correct — must not be rewritten.
+            {"id": "t3", "user_id": "A", "raw_merchant": "SWIGGYINSTAMART",
+             "category_id": "food"},
+            # Not corrected by the user at all — left alone.
+            {"id": "t4", "user_id": "A", "raw_merchant": "MOHANLALSHARMA",
+             "category_id": None},
+        ],
+        "updates": [],
+    }
+
+
+def test_reapply_puts_drifted_rows_back():
+    from app.api.categorization import reapply_user_corrections
+
+    store = _store()
+    out = asyncio.run(reapply_user_corrections(user_id="A", db=_ReapplyDB(store)))
+    assert out["updated_transactions"] == 2
+    by_id = {r["id"]: r["category_id"] for r in store["transactions"]}
+    assert by_id["t1"] == "food" and by_id["t2"] == "food"
+    assert by_id["t3"] == "food"          # untouched, already right
+    assert by_id["t4"] is None            # never corrected -> not our business
+
+
+def test_reapply_is_idempotent():
+    from app.api.categorization import reapply_user_corrections
+
+    store = _store()
+    asyncio.run(reapply_user_corrections(user_id="A", db=_ReapplyDB(store)))
+    store["updates"].clear()
+    out = asyncio.run(reapply_user_corrections(user_id="A", db=_ReapplyDB(store)))
+    assert out["updated_transactions"] == 0
+    assert store["updates"] == []
+
+
+def test_reapply_only_uses_user_sourced_records():
+    """A 'rule' record is a cache, not a decision — reapply must ignore it."""
+    from app.api.categorization import reapply_user_corrections
+
+    store = _store()
+    store["transactions"].append(
+        {"id": "t5", "user_id": "A", "raw_merchant": "DMART", "category_id": "groceries"}
+    )
+    asyncio.run(reapply_user_corrections(user_id="A", db=_ReapplyDB(store)))
+    by_id = {r["id"]: r["category_id"] for r in store["transactions"]}
+    assert by_id["t5"] == "groceries"     # NOT forced to the cached 'guess'

@@ -198,6 +198,9 @@ async def update_transaction_category(
                     "user_id": user_id,
                     "raw_merchant": transaction["raw_merchant"],
                     "category_id": request.category_id,
+                    # 'user' is what makes this outrank the rule engine on the
+                    # next import, and reclaims a merchant the machine guessed.
+                    "source": "user",
                 },
                 on_conflict="user_id,raw_merchant",
             ).execute()
@@ -234,8 +237,10 @@ async def suggest_category(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
         tx = tx[0]
 
-        cats = db.table("categories").select("id,name").is_(
-            "user_id", "null"
+        # The caller's own categories too — a system-only list meant the AI could
+        # never suggest Rent, Health or Petrol, which hold a sixth of their spend.
+        cats = db.table("categories").select("id,name").or_(
+            f"user_id.is.null,user_id.eq.{user_id}"
         ).execute().data or []
         name_to_id = {c["name"]: c["id"] for c in cats}
         valid_names = [c["name"] for c in cats]
@@ -421,6 +426,9 @@ async def assign_merchant_category(
                 "user_id": user_id,
                 "raw_merchant": request.raw_merchant,
                 "category_id": request.category_id,
+                # A triage decision is the user's, so it outranks the rules on
+                # every future import.
+                "source": "user",
             },
             on_conflict="user_id,raw_merchant",
         ).execute()

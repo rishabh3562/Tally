@@ -155,7 +155,12 @@ async def test_assign_merchant_scopes_to_user_and_learns():
     assert upd["payload"] == {"category_id": "cat-1", "confidence_score": 1.0}
 
     lr = next(l for l in store["log"] if l["table"] == "learning_records" and l["op"] == "upsert")
-    assert lr["payload"] == {"user_id": "u1", "raw_merchant": "Amazon", "category_id": "cat-1"}
+    # source='user' is what makes this decision outrank the rule engine on the
+    # next import (migration 006).
+    assert lr["payload"] == {
+        "user_id": "u1", "raw_merchant": "Amazon", "category_id": "cat-1",
+        "source": "user",
+    }
     assert lr["on_conflict"] == "user_id,raw_merchant"
 
 

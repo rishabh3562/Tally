@@ -15,7 +15,12 @@ from app.core.auth import get_current_user
 from app.core.database import get_supabase
 from app.schemas.categories import CategoryCreate
 from app.services import llm_client
-from app.services.categorizer import llm_categorize_merchants, rule_category
+from app.services.categorizer import (
+    llm_categorize_merchants,
+    load_user_overrides,
+    match_override,
+    rule_category,
+)
 
 logger = logging.getLogger("tally.categorizer")
 
@@ -280,6 +285,87 @@ async def recategorize(
         }
     except Exception as e:
         logger.exception("recategorize failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
+
+@router.post("/learning/reapply")
+async def reapply_user_corrections(
+    user_id: str = Depends(get_current_user),
+    db: Client = Depends(get_supabase),
+):
+    """Re-assert the user's own corrections over any rows that drifted from them.
+
+    Corrections live in ``learning_records`` with ``source='user'`` and are applied
+    at ingestion (see ``categorizer.resolve_category``). But rows imported BEFORE
+    that precedence existed — or any row a rule mislabelled while the rules outranked
+    the user — still carry the machine's answer. ``/recategorize`` can't fix those:
+    it only looks at rows that are "Other" or uncategorized.
+
+    Idempotent, and the primitive worth running after every rule change. Only ever
+    writes the category the user themselves chose.
+    """
+    try:
+        records = (
+            db.table("learning_records")
+            .select("raw_merchant,category_id")
+            .eq("user_id", user_id)
+            .eq("source", "user")
+            .execute()
+            .data
+            or []
+        )
+        if not records:
+            return {
+                "status": "done", "corrections": 0, "updated_transactions": 0,
+                "message": "You haven't corrected any merchants yet.",
+            }
+
+        overrides = load_user_overrides(db, user_id)
+        rows = (
+            db.table("transactions")
+            .select("id,raw_merchant,category_id")
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+
+        # Group the drifted rows by the category they SHOULD have, so this is a
+        # handful of updates rather than one per transaction.
+        wanted: dict[str, list[str]] = {}
+        for r in rows:
+            want = match_override(r.get("raw_merchant") or "", overrides)
+            if want and r.get("category_id") != want:
+                wanted.setdefault(want, []).append(r["id"])
+
+        updated = 0
+        for category_id, ids in wanted.items():
+            for start in range(0, len(ids), 100):
+                chunk = ids[start:start + 100]
+                res = (
+                    db.table("transactions")
+                    .update({"category_id": category_id, "confidence_score": 1.0})
+                    .eq("user_id", user_id)
+                    .in_("id", chunk)
+                    .execute()
+                )
+                updated += len(res.data or [])
+
+        return {
+            "status": "done",
+            "corrections": len(records),
+            "updated_transactions": updated,
+            "message": (
+                f"Re-applied {len(records)} of your corrections; "
+                f"{updated} transaction{'s' if updated != 1 else ''} put back."
+                if updated
+                else f"All {len(records)} of your corrections are already applied."
+            ),
+        }
+    except Exception as e:
+        logger.exception("reapply failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
