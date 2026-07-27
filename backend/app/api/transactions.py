@@ -181,21 +181,33 @@ async def update_transaction_category(
 
         transaction = tx_response.data[0]
 
-        # Update category
+        # Update category. Scoped to the caller as well as the row id: the SELECT
+        # above already proved ownership, but the service-role key bypasses RLS, so
+        # an unscoped write here is one refactor away from being a hole.
         db.table("transactions").update(
             {"category_id": request.category_id}
-        ).eq("id", transaction_id).execute()
+        ).eq("id", transaction_id).eq("user_id", user_id).execute()
 
-        # If merchant correction, save learning record
+        # If merchant correction, save learning record. `on_conflict` matters:
+        # learning_records is UNIQUE(user_id, raw_merchant), so correcting the same
+        # merchant twice raised a duplicate-key error AFTER the category update had
+        # already committed — a 500 with the change half-applied.
         if request.merchant_correction and transaction["raw_merchant"]:
-            db.table("learning_records").upsert({
-                "user_id": user_id,
-                "raw_merchant": transaction["raw_merchant"],
-                "category_id": request.category_id,
-            }).execute()
+            db.table("learning_records").upsert(
+                {
+                    "user_id": user_id,
+                    "raw_merchant": transaction["raw_merchant"],
+                    "category_id": request.category_id,
+                },
+                on_conflict="user_id,raw_merchant",
+            ).execute()
 
         return {"updated": True}
 
+    except HTTPException:
+        # Without this the 404 above became a 500 — every other handler in this
+        # file re-raises, this one didn't.
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

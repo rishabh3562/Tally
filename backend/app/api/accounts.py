@@ -92,8 +92,12 @@ async def delete_account(
                 detail="Account not found",
             )
 
-        # Delete account
-        db.table("accounts").delete().eq("id", account_id).execute()
+        # Delete account — scoped to the caller as well as the id. The SELECT above
+        # proved ownership, but the service-role key bypasses RLS, so leaving the
+        # write unscoped means one refactor turns this into a cross-user delete.
+        db.table("accounts").delete().eq("id", account_id).eq(
+            "user_id", user_id
+        ).execute()
         return {"message": "Account deleted successfully"}
     except HTTPException:
         raise

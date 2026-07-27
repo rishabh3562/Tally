@@ -1,96 +1,22 @@
 """User management API routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from supabase import Client
 from app.core.database import get_supabase
 from app.core.auth import get_current_user
 from app.schemas.users import UserOut, UserPreferences
-from datetime import datetime
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
-
-class SignUpRequest(BaseModel):
-  email: str
-  user_id: str
-
-
-class UserCreatedResponse(BaseModel):
-  id: str
-  email: str
-  preferences: dict
-  created_at: str
-  account: dict | None = None
-
-
-@router.post("/signup", response_model=UserCreatedResponse)
-async def create_user_on_signup(
-    request: SignUpRequest,
-    db: Client = Depends(get_supabase),
-):
-  """Create user profile and default account after Supabase auth signup."""
-  try:
-    user_id = request.user_id
-    email = request.email
-
-    # Check if user already exists
-    existing = db.table("users").select("id").eq("id", user_id).limit(1).execute()
-    if existing.data:
-      # User already exists, just return it
-      user = existing.data[0]
-      return UserCreatedResponse(
-        id=user["id"],
-        email=user["email"],
-        preferences=user.get("preferences", {}),
-        created_at=user.get("created_at", ""),
-      )
-
-    now = datetime.utcnow().isoformat()
-
-    # Create user profile in users table
-    user_insert = db.table("users").insert({
-      "id": user_id,
-      "email": email,
-      "preferences": {"default_currency": "INR", "theme": "light"},
-      "created_at": now,
-    }).execute()
-
-    if not user_insert.data:
-      raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Failed to create user profile",
-      )
-
-    user = user_insert.data[0]
-
-    # Create default account for the user
-    account_insert = db.table("accounts").insert({
-      "user_id": user_id,
-      "name": "My Account",
-      "type": "Bank",
-      "created_at": now,
-    }).execute()
-
-    account = None
-    if account_insert.data:
-      account = account_insert.data[0]
-
-    return UserCreatedResponse(
-      id=user["id"],
-      email=user["email"],
-      preferences=user.get("preferences", {}),
-      created_at=user.get("created_at", ""),
-      account=account,
-    )
-
-  except HTTPException:
-    raise
-  except Exception as e:
-    raise HTTPException(
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-      detail=f"Failed to create user profile: {str(e)}",
-    )
+# There is deliberately no POST /api/users/signup.
+#
+# It existed, was UNAUTHENTICATED, and took `user_id` from the request body: given
+# only a UUID it returned that user's email and preferences, and it could insert a
+# users row (plus a default account) with an attacker-chosen email. Nothing in the
+# frontend called it — signup goes through Supabase Auth — and provisioning is
+# already handled, idempotently and from a verified token, by
+# `app.core.auth._ensure_user_provisioned` on each user's first authenticated
+# request. Do not reintroduce it.
 
 
 @router.get("/me", response_model=UserOut)

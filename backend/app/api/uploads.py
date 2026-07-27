@@ -116,6 +116,27 @@ async def upload_statement(
             detail=f"Unsupported file type. Allowed: {settings.allowed_file_types}",
         )
 
+    # `account_id` arrives from a form field, so it MUST be proved to belong to the
+    # caller before anything is read or written with it. Without this check it was
+    # both an existence oracle over another user's transactions (the dedup
+    # fingerprint read below is keyed on account_id) and a way to write rows into
+    # someone else's account.
+    try:
+        owned = db.table("accounts").select("id").eq(
+            "id", account_id
+        ).eq("user_id", user_id).limit(1).execute().data
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not verify account: {e}",
+        )
+    if not owned:
+        # 404, not 403: don't confirm that someone else's account id exists.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found",
+        )
+
     # Read file
     try:
         file_bytes = await file.read()
@@ -247,10 +268,13 @@ async def _run_ingestion(
             )
             return
 
-        # 2) Deduplicate against what's already stored for this account
+        # 2) Deduplicate against what's already stored for this account.
+        # Scoped to the caller as well as the account: the service-role key
+        # bypasses RLS, so account_id alone would let this read (and reveal, via
+        # the duplicates_skipped stat) another user's fingerprints.
         existing = db.table("transactions").select("fingerprint").eq(
-            "account_id", account_id
-        ).execute()
+            "user_id", user_id
+        ).eq("account_id", account_id).execute()
         existing_fps = {r["fingerprint"] for r in (existing.data or []) if r.get("fingerprint")}
 
         # 3) Categorize + insert

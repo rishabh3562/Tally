@@ -16,6 +16,7 @@ This module verifies the token against whichever scheme the token header
 declares, so it works before and after a project migrates to signing keys.
 """
 
+import uuid
 from functools import lru_cache
 
 import jwt
@@ -141,6 +142,20 @@ async def get_current_user(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing subject claim",
+            )
+
+        # The subject is interpolated straight into PostgREST filter expressions
+        # in several routers (`.or_(f"user_id.is.null,user_id.eq.{user_id}")`),
+        # where `,` and `()` are grammar. Supabase always issues a UUID here, so
+        # anything else is either a misconfigured issuer or an attack — reject it
+        # at the door rather than trusting every call site to escape it.
+        try:
+            uuid.UUID(str(user_id))
+        except (ValueError, AttributeError, TypeError):
+            print(f"[auth] subject claim is not a UUID: {user_id!r}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: malformed subject claim",
             )
 
         # Make sure this user is tracked in our DB before any route runs.
