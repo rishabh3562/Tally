@@ -5,11 +5,43 @@ export interface DrillLink {
   href: { pathname: string; query: Record<string, string> };
 }
 
+/** Did this tool call actually find (or change) anything?
+ *
+ *  Without this check a chip appears under an answer that says there's nothing
+ *  there — "You have no transactions in June 2026" followed by a button to a
+ *  guaranteed-empty table. The data ends May 2026 while "today" is July, so every
+ *  "this month" question hits it.
+ */
+function foundSomething(step: ChatTraceStep): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = (step.result ?? {}) as any;
+  if (r.no_data_in_period || r.error) return false;
+
+  switch (step.tool) {
+    case 'search_transactions':
+      return (r.count ?? 0) > 0;
+    case 'get_spending_by_category':
+      // The no_data flag only fires when the WHOLE period is empty; a period with
+      // spend but none in the asked-for category leaves categories: [].
+      return Array.isArray(r.categories) ? r.categories.length > 0 : true;
+    case 'get_top_merchants':
+      return Array.isArray(r.merchants) ? r.merchants.length > 0 : true;
+    case 'get_largest_transactions':
+      return Array.isArray(r.transactions) ? r.transactions.length > 0 : true;
+    case 'get_spending_summary':
+      return (r.txn_count ?? 1) > 0;
+    case 'categorize_merchant':
+      return !r.needs_confirmation && (r.transactions_updated ?? 0) > 0;
+    default:
+      return true;
+  }
+}
+
 /** Turn an answer's tool calls into links to the transactions behind it.
  *
  *  The Palantir move: an answer is never a dead end — the figures came from rows,
  *  so offer the rows. The arguments the tool was called with ARE the filter, so
- *  no guessing from the answer text.
+ *  there's no guessing from the answer text.
  */
 export function drillLinksFromTrace(trace?: ChatTrace): DrillLink[] {
   const steps: ChatTraceStep[] = trace?.steps ?? [];
@@ -31,7 +63,9 @@ export function drillLinksFromTrace(trace?: ChatTrace): DrillLink[] {
   };
 
   for (const step of steps) {
+    if (!foundSomething(step)) continue;
     const args = (step.args ?? {}) as Record<string, unknown>;
+
     switch (step.tool) {
       case 'search_transactions': {
         // The tool is brand-aware and so is the transactions search, so the same

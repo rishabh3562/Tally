@@ -674,6 +674,53 @@ def _answer_average(db: Client, user_id: str) -> str:
     )
 
 
+def _is_monthly_breakdown_query(question: str) -> bool:
+    """A request for spend PER MONTH, month by month.
+
+    From a real trace: "so what does my spending month wise look like" took the
+    agent 78 seconds and came back with the average and the peak month — no tool
+    could answer the actual question, so the model picked the nearest thing.
+    "average"/"run rate" wording means they want the single figure instead.
+    """
+    q = question.lower()
+    if any(w in q for w in ["average", "avg", "run rate", "run-rate"]):
+        return False
+    return any(w in q for w in [
+        "month wise", "month-wise", "monthwise", "month by month", "by month",
+        "each month", "every month", "per month", "monthly breakdown",
+        "monthly spending", "monthly spend", "spending by month", "months",
+    ])
+
+
+def monthly_spending(txns: list[dict]) -> list[tuple[str, float]]:
+    """Spend per calendar month, oldest first. Shared by the chat answer and the
+    agent tool so both report the same figures."""
+    monthly: dict[str, float] = defaultdict(float)
+    for t in _spend_only(txns):
+        ym = str(t.get("date") or "")[:7]
+        if len(ym) == 7:
+            monthly[ym] += float(t.get("amount") or 0)
+    return sorted(monthly.items())
+
+
+def _answer_monthly_breakdown(db: Client, user_id: str) -> str:
+    """Every month with its total — the shape of the year, not one average."""
+    months = monthly_spending(_fetch_transactions(db, user_id, None, None))
+    if not months:
+        return "You have no spending imported yet, so there's nothing to break down."
+    peak = max(months, key=lambda kv: kv[1])
+    total = sum(v for _, v in months)
+    return _listing(
+        f"Your spending month by month ({_rupees(total)} in total):",
+        [f"{_pretty_month(ym)} — {_rupees(amt)}" for ym, amt in months],
+        footer=(
+            f"Biggest month: {_pretty_month(peak[0])} at {_rupees(peak[1])}."
+            if len(months) > 1
+            else ""
+        ),
+    )
+
+
 def _is_change_query(question: str) -> bool:
     """A request for what rose the most vs last month."""
     q = question.lower()
@@ -875,6 +922,9 @@ def answer_question(question: str, user_id: str, db: Client) -> str:
         if _is_daily_average_query(question):
             return _answer_daily_average(db, user_id)
         return _answer_average(db, user_id)
+
+    if _is_monthly_breakdown_query(question):
+        return _answer_monthly_breakdown(db, user_id)
 
     if _is_daily_average_query(question) and "spend" in question.lower():
         return _answer_daily_average(db, user_id)
@@ -1152,6 +1202,7 @@ _DETERMINISTIC_FIRST = (
     _is_change_query,
     _is_average_query,        # includes the per-day variant
     _is_daily_average_query,
+    _is_monthly_breakdown_query,
     _is_biggest_query,
     _is_received_query,
 )
@@ -1215,15 +1266,25 @@ async def _resolve_answer(question: str, user_id: str, db: Client) -> str:
     error: str | None = None
     started = time.monotonic()
 
-    if prefers_deterministic(question):
+    def _instant(answer: str) -> str:
         # No rephrase: these answers are menus and structured listings, and the
         # model's job here would only be to make them worse.
-        answer = answer_question(question, user_id, db)
         _record_trace(
             db, user_id, question, steps, answer, "instant", None,
             int((time.monotonic() - started) * 1000),
         )
         return answer
+
+    if prefers_deterministic(question):
+        return _instant(answer_question(question, user_id, db))
+
+    # A question about a period with NO data needs no model: the answer is "that
+    # period is empty, here's the range that isn't". A real trace shows the user
+    # waiting 26 seconds for exactly that ("what is the current spending last
+    # month?" — the data ends May 2026), and the model can only get it wrong.
+    p_start, p_end = parse_period(question)
+    if (p_start or p_end) and not _fetch_transactions(db, user_id, p_start, p_end):
+        return _instant(empty_period_answer(db, user_id, p_start, p_end))
 
     async def _fallback() -> str:
         # Actions work deterministically even with no LLM. Their confirmation is

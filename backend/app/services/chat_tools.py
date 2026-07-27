@@ -572,6 +572,23 @@ def get_recurring_payments(
     }
 
 
+def get_monthly_spending(
+    db: Client, user_id: str, *, question: str = "", **_: Any,
+) -> dict[str, Any]:
+    """Read tool: total spend for EVERY month, oldest first. Answers "what does my
+    spending look like month by month" — which used to have no tool at all, so the
+    model reached for the average instead."""
+    from app.services.chat_service import monthly_spending
+
+    rows = _fetch_transactions(db, user_id, None, None)
+    months = monthly_spending(rows)
+    return {
+        "months": [{"month": ym, "spent": round(amt, 2)} for ym, amt in months],
+        "count": len(months),
+        "total_spent": round(sum(a for _, a in months), 2),
+    }
+
+
 def get_frequent_merchants(
     db: Client, user_id: str, *, question: str = "", **_: Any,
 ) -> dict[str, Any]:
@@ -652,6 +669,7 @@ TOOLS: dict[str, Callable[..., dict[str, Any]]] = {
     "compare_periods": compare_periods,
     "get_recurring_payments": get_recurring_payments,
     "get_frequent_merchants": get_frequent_merchants,
+    "get_monthly_spending": get_monthly_spending,
     "get_category_movers": get_category_movers,
     "get_average_monthly_spend": get_average_monthly_spend,
 }
@@ -679,6 +697,7 @@ TOOL_SPECS = """\
 - compare_periods(period_a_start, period_a_end, period_b_start, period_b_end): compare two date ranges.
 - get_recurring_payments(): merchants charged on a regular monthly cadence (subscriptions, rent, memberships) + monthly total.
 - get_frequent_merchants(): the merchants paid most OFTEN (frequency, not size) — small spends that add up.
+- get_monthly_spending(): total spend for every month, oldest first (month-by-month shape, not an average).
 - get_category_movers(): categories whose spend rose/fell the most between the two most recent months.
 - get_average_monthly_spend(): average spend per month across all history + the peak month.
 Dates are YYYY-MM-DD. Fields marked ? are optional; omit them if the user gave no range."""
