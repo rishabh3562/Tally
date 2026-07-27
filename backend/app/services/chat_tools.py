@@ -154,26 +154,51 @@ def search_transactions(
     db: Client, user_id: str, *, keyword: str = "", start: Optional[str] = None,
     end: Optional[str] = None, limit: int = 10, question: str = "", **_: Any,
 ) -> dict[str, Any]:
-    """Find transactions whose merchant matches a keyword (capped, most recent first)."""
+    """Find transactions whose merchant matches a keyword.
+
+    Brand-aware: one brand is stored under many strings (DMart is
+    ``AVENUESUPERMARTSLTD``, Swiggy is also ``BundlTechnologiespvtLtd``), so a
+    literal LIKE on the keyword answers "Rs 0" for a merchant the user shops at
+    weekly. When the keyword names a known brand we match on the canonical name
+    instead — the same rule the deterministic answer already used.
+
+    ``count`` and ``total_amount`` cover EVERY match; ``transactions`` is the most
+    recent ``limit`` of them as a sample (a total computed over one capped page
+    would be quietly wrong, and the model presents it as the total).
+    """
+    from app.services.merchant import BRAND_NAMES, canonical_merchant
+
     start, end = _resolve_period(start, end, question)
     limit = _clamp_limit(limit, 10, _MAX_ROWS)
     kw = (keyword or "").strip()
     if not kw:
         return {"keyword": kw, "count": 0, "transactions": [], "note": "no keyword provided"}
 
-    q = (
-        db.table("transactions")
-        .select("date,amount,raw_merchant,counterparty,categories(name)")
-        .eq("user_id", user_id)
-        .ilike("raw_merchant", f"%{kw}%")
-        .order("date", desc=True)
-        .limit(limit)
-    )
-    if start:
-        q = q.gte("date", start)
-    if end:
-        q = q.lte("date", end)
-    rows = q.execute().data or []
+    canon = canonical_merchant(kw)
+    brand = canon if canon in BRAND_NAMES else None
+
+    def _scoped():
+        q = (
+            db.table("transactions")
+            .select("date,amount,raw_merchant,counterparty,categories(name)")
+            .eq("user_id", user_id)
+        )
+        if start:
+            q = q.gte("date", start)
+        if end:
+            q = q.lte("date", end)
+        return q
+
+    if brand:
+        rows = [
+            r for r in (_scoped().execute().data or [])
+            if canonical_merchant(r.get("raw_merchant") or "") == brand
+            or kw.lower() in (r.get("raw_merchant") or "").lower()
+        ]
+    else:
+        rows = _scoped().ilike("raw_merchant", f"%{kw}%").execute().data or []
+
+    rows.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
     out = [
         {
             "date": r.get("date"),
@@ -183,12 +208,20 @@ def search_transactions(
         }
         for r in rows
     ]
-    return {
+    result: dict[str, Any] = {
         "keyword": kw,
         "count": len(out),
         "total_amount": round(sum(t["amount"] for t in out), 2),
-        "transactions": out,
+        "transactions": out[:limit],
     }
+    if brand:
+        result["matched_brand"] = brand
+    if len(out) > limit:
+        result["note"] = (
+            f"showing the {limit} most recent of {len(out)}; count and total_amount "
+            "cover all of them"
+        )
+    return result
 
 
 def list_events(db: Client, user_id: str, *, question: str = "", **_: Any) -> dict[str, Any]:

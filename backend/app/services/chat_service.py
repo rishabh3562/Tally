@@ -1151,12 +1151,36 @@ _DETERMINISTIC_FIRST = (
     _is_change_query,
     _is_average_query,        # includes the per-day variant
     _is_daily_average_query,
+    _is_biggest_query,
+    _is_received_query,
 )
 
 
+def _is_merchant_ranking(question: str) -> bool:
+    """"which merchants did I spend the most at" / "where did my money go" — the
+    tool does all the work and our listing (with % share) beats model prose."""
+    return classify_intent(question) == IntentType.MERCHANT_BREAKDOWN
+
+
 def prefers_deterministic(question: str) -> bool:
-    """True when a dedicated handler beats the model for this question shape."""
-    return any(matches(question) for matches in _DETERMINISTIC_FIRST)
+    """True when a dedicated handler beats the model for this question shape.
+
+    Measured against the live model, not assumed: "which merchants did I spend the
+    most at" took 68s through the agent and came back as a comma-run of the same
+    tool output; "what was my biggest expense" 4.9s. The deterministic answers are
+    listings with shares, computed in ~200ms.
+    """
+    if any(matches(question) for matches in _DETERMINISTIC_FIRST):
+        return True
+    if _is_merchant_ranking(question):
+        return True
+    # "how much did I spend at dmart" — the deterministic lookup is brand-aware
+    # (DMart is stored as AVENUESUPERMARTS), which is exactly where the model's
+    # keyword search answered "Rs 0". Only when no category is named, so
+    # "how much on food at restaurants" stays a category question.
+    if _extract_merchant_target(question) and not extract_category(question):
+        return True
+    return False
 
 
 async def _resolve_answer(question: str, user_id: str, db: Client) -> str:

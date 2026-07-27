@@ -101,11 +101,25 @@ def test_dedicated_handlers_skip_the_model(question):
 
 
 @pytest.mark.parametrize("question", [
-    "how much did I spend on food last month",
     "which merchants did I spend the most at",
-    "put all my amazon purchases under Shopping",
+    "where did my money go",
     "what was my biggest expense",
+    "how much money did I get back",
+    "how much did I spend at dmart",
+])
+def test_shapes_the_live_model_did_worse_or_slower_are_also_instant(question):
+    """Measured, not assumed: the merchant ranking took 68s through the agent for
+    a re-rendering of the same tool output, and its keyword search answered
+    "Rs 0" for DMart (stored as AVENUESUPERMARTS)."""
+    assert cs.prefers_deterministic(question) is True, question
+
+
+@pytest.mark.parametrize("question", [
+    "how much did I spend on food last month",
+    "put all my amazon purchases under Shopping",
     "did I spend more this month than last month",
+    "how much did I spend in March 2026",
+    "how much on food at restaurants",
 ])
 def test_general_questions_still_go_to_the_agent(question):
     """The model handles arbitrary phrasing better and its figures are verified —
