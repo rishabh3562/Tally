@@ -4,6 +4,7 @@ python-dotenv>=1.0.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 python-multipart>=0.0.6      # FastAPI needs it for UploadFile (statement upload)
+requests>=2.31.0             # services/llm_client.py (Gemini / OpenRouter HTTP)
 
 # Database — Supabase over PostgREST only; there is no direct Postgres connection
 supabase>=2.3.0
