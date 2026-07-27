@@ -36,3 +36,55 @@ def test_empty_and_confidence():
     assert rule_category("") is None
     assert rule_category("AmazonIndia")[1] == 1.0   # brand token = high confidence
     assert rule_category("SMARTLIFECHEMIST")[1] == 0.85  # regex = medium
+
+
+# --- brand map (reuses merchant.canonical_merchant) -------------------------
+# Added after measuring the REAL uncategorised pile: DMart was Rs 3,138 of
+# "Other" purely because no token matched "AVENUESUPERMARTSLTD".
+
+def test_every_canonical_brand_has_a_category():
+    """merchant.py and categorizer.py must not drift: a brand added to the
+    canonicalizer without a category here would silently stay uncategorised."""
+    from app.services.categorizer import BRAND_CATEGORY
+    from app.services.merchant import BRAND_NAMES
+
+    assert set(BRAND_CATEGORY) == set(BRAND_NAMES)
+
+
+def test_brand_variants_categorize_without_their_own_token():
+    from app.services.categorizer import rule_category
+
+    for raw, expected in [
+        ("AVENUESUPERMARTSLTD", "Groceries"),      # DMart
+        ("DMART BHOPAL", "Groceries"),
+        ("BundlTechnologiespvtLtd", "Food & Dining"),   # Swiggy
+        ("KHELOMORE", "Entertainment"),
+        ("AmazonPayonDelivery", "Shopping"),
+    ]:
+        got = rule_category(raw)
+        assert got is not None, raw
+        assert got[0] == expected, (raw, got)
+
+
+def test_a_sub_brand_beats_its_parent_brand():
+    """Swiggy Instamart is a grocery run, not a restaurant meal."""
+    from app.services.categorizer import rule_category
+
+    assert rule_category("SWIGGYINSTAMARTPRIVATELIMITED")[0] == "Groceries"
+    assert rule_category("Swiggy")[0] == "Food & Dining"
+
+
+def test_regex_gaps_found_in_real_statements():
+    from app.services.categorizer import rule_category
+
+    assert rule_category("INDIANOILCORPORATIONLTDLPGCRMDEBITCARD")[0] == "Transport"
+    assert rule_category("EKART")[0] == "Shopping"
+
+
+def test_people_still_do_not_match_any_rule():
+    """P2P UPI payments must stay unmatched — that's what triage is for; a false
+    rule match would mislabel money and get remembered."""
+    from app.services.categorizer import rule_category
+
+    for name in ["MOHANLALSHARMA", "AYUSHPATEL", "PriyaPandey", "VEDANTKOTKAR"]:
+        assert rule_category(name) is None, name

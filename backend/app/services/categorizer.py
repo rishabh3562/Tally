@@ -6,11 +6,42 @@ from typing import Tuple, Optional
 from supabase import Client
 
 from app.services import llm_client
+from app.services.merchant import canonical_merchant
 
 logger = logging.getLogger("tally.categorizer")
 
 # Batch size for LLM categorization: how many unique merchants per call.
 _LLM_BATCH = 40
+
+
+# Canonical brand → category. One line per brand in `merchant._CANONICAL_TOKENS`,
+# which already collapses every variant string a statement can carry
+# ("AVENUESUPERMARTSLTD" and "DMART" both → "DMart"), so this covers all of those
+# variants without repeating their tokens here. Found by measuring the real
+# uncategorised pile: DMart was Rs 3,138 of "Other" purely because the token list
+# below has no entry that matches "AVENUESUPERMARTSLTD".
+BRAND_CATEGORY = {
+    "Swiggy": "Food & Dining",
+    "Zomato": "Food & Dining",
+    "HungerBox": "Food & Dining",
+    "Amazon": "Shopping",
+    "Flipkart": "Shopping",
+    "DMart": "Groceries",
+    "BigBasket": "Groceries",
+    "Blinkit": "Groceries",
+    "Zepto": "Groceries",
+    "Netflix": "Subscriptions",
+    "Spotify": "Subscriptions",
+    "Hotstar": "Subscriptions",
+    "Hostinger": "Subscriptions",
+    "RedBus": "Travel",
+    "KheloMore": "Entertainment",
+}
+
+# Sub-brands whose category differs from the parent brand's, checked first.
+SUB_BRAND_CATEGORY = {
+    "INSTAMART": "Groceries",     # Swiggy Instamart is a grocery run, not a meal
+}
 
 
 # Distinctive brand tokens → category, matched as a SUBSTRING of the uppercased
@@ -68,15 +99,19 @@ MERCHANT_CATEGORY_RULES = {
 # inside unrelated words (names, ids).
 REGEX_CATEGORY_RULES = [
     (r"\bOLA\b|\bUBER\b|\bRAPIDO\b|PARIVAHAN|MAHAMANDAL|\bMETRO\b|\bBUS\b|\bCAB\b|TRANSPORT", "Transport"),
-    (r"FUEL|PETROL|DIESEL|\bCNG\b|\bPUMP\b|PETROLEUM|HPCL|IOCL|BHARATPETRO", "Transport"),
-    (r"GROCERY|KIRANA|SUPERMARKET|\bMART\b|PROVISION", "Groceries"),
+    # INDIANOIL: real statements spell it out ("INDIANOILCORPORATIONLTDLPGCRM…"),
+    # which the IOCL abbreviation never matches.
+    (r"FUEL|PETROL|DIESEL|\bCNG\b|\bPUMP\b|PETROLEUM|HPCL|IOCL|INDIANOIL|BHARATPETRO", "Transport"),
+    # SUPERMART without a word boundary: "AVENUESUPERMARTSLTD" has none.
+    (r"GROCERY|KIRANA|SUPERMARKET|SUPERMART|\bMART\b|PROVISION", "Groceries"),
     (r"HOSPITAL|MEDIC|PHARMAC|CHEMIST|CLINIC|DIAGNOSTIC|\bDR\b|DOCTOR|HEALTH|DENTAL", "Healthcare"),
     (r"SCHOOL|COLLEGE|UNIVERSITY|EDUCATION|COURSE|TUITION|ACADEMY|CLASSES|COACHING", "Education"),
     (r"FLIGHT|AIRLINE|INDIGO|HOTEL|RESORT|BOOKING|\bTRIP\b|TRAVEL|AIRWAYS", "Travel"),
     (r"CINEMA|MOVIE|\bPVR\b|INOX|BOOKMYSHOW|ENTERTAIN|GAMING|SPORT|\bKHELO\b|MATCHPOINT|\bTURF\b", "Entertainment"),
     (r"ELECTRICITY|WATERBILL|GASBILL|RECHARGE|\bJIO\b|AIRTEL|\bVI\b|BROADBAND|\bDTH\b|\bATM\b|BILLPAY", "Utilities"),
     (r"RESTAURANT|CAFE|COFFEE|\bFOOD\b|DINING|SNACK|BAKERY|SWEET|MITHAI|\bTEA\b|CHAAP|DHABA|BIRYANI|PIZZA|BURGER|CANTEEN|KITCHEN", "Food & Dining"),
-    (r"SHOPPING|\bMALL\b|\bSTORE\b|RETAIL|APPAREL|FASHION|LIFESTYLE|\bTRENDS\b|GARMENT|FOOTWEAR", "Shopping"),
+    # EKART is Flipkart's courier arm — it only ever shows up on a delivery.
+    (r"SHOPPING|\bMALL\b|\bSTORE\b|RETAIL|APPAREL|FASHION|LIFESTYLE|\bTRENDS\b|GARMENT|FOOTWEAR|\bEKART\b", "Shopping"),
 ]
 
 
@@ -91,6 +126,20 @@ def rule_category(
     """
     if not raw_merchant:
         return None
+
+    merchant_key = re.sub(r"[^A-Z0-9]", "", raw_merchant.upper())
+
+    # Layer 0a: a sub-brand that belongs to a DIFFERENT category than its parent
+    # beats the brand map — Swiggy Instamart is groceries, not a restaurant meal.
+    for token, category in SUB_BRAND_CATEGORY.items():
+        if token in merchant_key:
+            return category, 1.0
+
+    # Layer 0b: the shared brand canonicalizer (confidence 1.0). Reusing it means
+    # every merchant-string variant a brand appears under is already handled.
+    brand = canonical_merchant(raw_merchant)
+    if brand in BRAND_CATEGORY:
+        return BRAND_CATEGORY[brand], 1.0
 
     merchant_upper = raw_merchant.upper()
 
