@@ -1176,9 +1176,18 @@ def prefers_deterministic(question: str) -> bool:
         return True
     # "how much did I spend at dmart" — the deterministic lookup is brand-aware
     # (DMart is stored as AVENUESUPERMARTS), which is exactly where the model's
-    # keyword search answered "Rs 0". Only when no category is named, so
-    # "how much on food at restaurants" stays a category question.
-    if _extract_merchant_target(question) and not extract_category(question):
+    # keyword search answered "Rs 0".
+    #
+    # Gated tightly on purpose: _extract_merchant_target splits on connectives as
+    # loose as " to " and " on ", so without a spend verb "what happened to my
+    # money" would be captured as a merchant lookup for "my money". A named
+    # category also disqualifies it, so "how much on food at restaurants" stays a
+    # category question.
+    if (
+        re.search(r"\b(?:spend|spent|spending|pay|paid|cost|costs)\b", question.lower())
+        and _extract_merchant_target(question)
+        and not extract_category(question)
+    ):
         return True
     return False
 

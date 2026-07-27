@@ -120,6 +120,10 @@ def test_shapes_the_live_model_did_worse_or_slower_are_also_instant(question):
     "did I spend more this month than last month",
     "how much did I spend in March 2026",
     "how much on food at restaurants",
+    # No spend verb: the merchant-target extractor splits on " to " and would
+    # otherwise read "my money" as a merchant to look up.
+    "what happened to my money",
+    "explain my finances to me",
 ])
 def test_general_questions_still_go_to_the_agent(question):
     """The model handles arbitrary phrasing better and its figures are verified —
