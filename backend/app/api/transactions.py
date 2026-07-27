@@ -12,6 +12,7 @@ from app.core.auth import get_current_user
 from app.schemas.transactions import TransactionOut, CategoryPatchRequest, AssignMerchantRequest
 from app.services import llm_client
 from app.services.categorizer import categorize_transaction, rule_category
+from app.services.merchant import brand_tokens, canonical_merchant
 
 logger = logging.getLogger("tally.transactions")
 
@@ -24,7 +25,8 @@ async def list_transactions(
     start_date: date = Query(None),
     end_date: date = Query(None),
     category_id: str = Query(None),
-    merchant: str = Query(None),
+    merchant: str = Query(None, description="Merchant search (substring, brand-aware)"),
+    merchant_exact: str = Query(None, description="Exact raw_merchant match"),
     sort: str = Query("date"),
     order: str = Query("desc"),
     page: int = Query(1, ge=1),
@@ -42,10 +44,24 @@ async def list_transactions(
             query = query.lte("date", end_date.isoformat())
         if category_id:
             query = query.eq("category_id", category_id)
+        if merchant_exact:
+            # Exact raw-merchant match — the triage drill-in works on one exact
+            # merchant string and must not pull in look-alikes.
+            query = query.eq("raw_merchant", merchant_exact)
         if merchant:
-            # Exact raw-merchant match — used by the triage drill-in to override
-            # individual rows of one merchant.
-            query = query.eq("raw_merchant", merchant)
+            # A SEARCH, because that's what the UI's search box is. It used to be an
+            # exact match, so typing "Amazon" returned nothing at all (the rows are
+            # "AmazonIndia", "AmazonPay", …). Brand-aware too: "dmart" finds
+            # AVENUESUPERMARTSLTD, the same rule the chat already uses.
+            patterns = [f"raw_merchant.ilike.%{merchant}%"]
+            brand = canonical_merchant(merchant)
+            for token in brand_tokens(brand):
+                patterns.append(f"raw_merchant.ilike.%{token}%")
+            query = (
+                query.or_(",".join(patterns))
+                if len(patterns) > 1
+                else query.ilike("raw_merchant", f"%{merchant}%")
+            )
 
         # Get total count
         count_response = query.execute()

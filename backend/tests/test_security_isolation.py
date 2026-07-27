@@ -111,7 +111,9 @@ async def test_transactions_list_never_leaks_other_user():
     db = _FakeDB({"transactions": _two_user_transactions()})
     out = await transactions.list_transactions(
         start_date=None, end_date=None, category_id=None, merchant=None,
-        page=1, limit=50, user_id="A", db=db,
+        # Called directly, so every default must be passed explicitly — an
+        # unpassed Query(None) arrives as a truthy Query object, not None.
+        merchant_exact=None, page=1, limit=50, user_id="A", db=db,
     )
     ids = {r["id"] for r in out["data"]}
     assert ids == {"a1"}          # B's row is invisible to A

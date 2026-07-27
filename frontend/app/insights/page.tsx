@@ -343,14 +343,30 @@ export default function InsightsPage() {
                 <p className="text-gray-500 text-sm">No merchant data for this range.</p>
               ) : (
                 <div className="divide-y">
+                  {/* Drills into the rows behind the figure. The transactions
+                      search is brand-aware, so the canonical name ("DMart")
+                      finds AVENUESUPERMARTSLTD too. */}
                   {summary.top_merchants.map((m) => (
-                    <div key={m.name} className="py-3 flex items-center justify-between">
+                    <Link
+                      key={m.name}
+                      href={{
+                        pathname: "/transactions",
+                        query: {
+                          q: m.name,
+                          ...(start ? { start } : {}),
+                          ...(end ? { end } : {}),
+                        },
+                      }}
+                      className="group flex items-center justify-between py-3 transition hover:bg-gray-50"
+                    >
                       <div className="min-w-0">
-                        <p className="font-medium text-gray-900 truncate">{m.name}</p>
+                        <p className="truncate font-medium text-gray-900 group-hover:text-blue-700">
+                          {m.name}
+                        </p>
                         <p className="text-xs text-gray-500">{m.count} transactions</p>
                       </div>
-                      <p className="font-semibold text-gray-900 shrink-0 ml-4">₹{inr(m.total)}</p>
-                    </div>
+                      <p className="ml-4 shrink-0 font-semibold text-gray-900">₹{inr(m.total)}</p>
+                    </Link>
                   ))}
                 </div>
               )}
@@ -444,12 +460,13 @@ export default function InsightsPage() {
           </p>
           <div className="divide-y">
             {habitItems.map((h) => (
-              <div
+              <Link
                 key={h.merchant}
-                className="flex items-center justify-between gap-3 py-2"
+                href={{ pathname: "/transactions", query: { q: h.merchant } }}
+                className="group flex items-center justify-between gap-3 py-2 transition hover:bg-gray-50"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-900">
+                  <p className="truncate text-sm font-medium text-gray-900 group-hover:text-blue-700">
                     {h.merchant}
                   </p>
                   <p className="text-xs text-gray-500">
@@ -460,7 +477,7 @@ export default function InsightsPage() {
                 <span className="shrink-0 text-sm font-semibold text-gray-900">
                   ₹{inr(h.total)}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

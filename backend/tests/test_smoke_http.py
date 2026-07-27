@@ -23,11 +23,19 @@ class _Q:
     def __init__(self, rows):
         self._rows = rows
         self._eq = {}
+        self._any_ilike: list[tuple[str, str]] = []   # OR of ilike patterns
+        self._ilike: tuple[str, str] | None = None
 
     def select(self, *a, **k):
         return self
 
-    def or_(self, *a, **k):
+    def or_(self, expr, *a, **k):
+        # PostgREST or-filter as the API builds it:
+        # "raw_merchant.ilike.%swiggy%,raw_merchant.ilike.%bundltech%"
+        for clause in expr.split(","):
+            col, op, value = clause.split(".", 2)
+            if op == "ilike":
+                self._any_ilike.append((col, value.strip("%").lower()))
         return self
 
     def eq(self, c, v):
@@ -46,7 +54,8 @@ class _Q:
     def lte(self, *a, **k):
         return self
 
-    def ilike(self, *a, **k):
+    def ilike(self, col, pattern):
+        self._ilike = (col, pattern.strip("%").lower())
         return self
 
     def order(self, *a, **k):
@@ -69,6 +78,17 @@ class _Q:
         uid = self._eq.get("user_id")
         if uid is not None:
             rows = [r for r in rows if r.get("user_id") in (uid, None)]
+        exact = self._eq.get("raw_merchant")
+        if exact is not None:
+            rows = [r for r in rows if r.get("raw_merchant") == exact]
+        if self._ilike:
+            col, needle = self._ilike
+            rows = [r for r in rows if needle in str(r.get(col) or "").lower()]
+        if self._any_ilike:
+            rows = [
+                r for r in rows
+                if any(n in str(r.get(c) or "").lower() for c, n in self._any_ilike)
+            ]
         return _Res(list(rows))
 
 
@@ -80,13 +100,21 @@ class _DB:
         return _Q(self._t.get(name, []))
 
 
+def _txn_row(id_, merchant, amount=500):
+    return {"id": id_, "user_id": "smoke-user", "date": "2026-07-01",
+            "amount": amount, "currency": "INR", "raw_merchant": merchant,
+            "memo": None, "category_id": None, "confidence_score": 0.5,
+            "is_transfer": False, "upi_transaction_id": None,
+            "direction": "debit", "group_id": None, "categories": None}
+
+
 _TABLES = {
     "transactions": [
-        {"id": "t1", "user_id": "smoke-user", "date": "2026-07-01", "amount": 500,
-         "currency": "INR", "raw_merchant": "AmazonIndia", "memo": None,
-         "category_id": None, "confidence_score": 0.5, "is_transfer": False,
-         "upi_transaction_id": None, "direction": "debit", "group_id": None,
-         "categories": None},
+        _txn_row("t1", "AmazonIndia"),
+        # Real-statement shapes: a brand hiding behind a legal name, and a
+        # variant that shares no substring with what a user would type.
+        _txn_row("t2", "AVENUESUPERMARTSLTD", 1200),
+        _txn_row("t3", "BundlTechnologiespvtLtd", 300),
     ],
     "categories": [
         {"id": "c1", "name": "Shopping", "icon": "🛍️", "user_id": None, "parent_id": None},
@@ -115,8 +143,36 @@ def test_transactions_list_serializes(client):
     r = client.get("/api/transactions")
     assert r.status_code == 200
     body = r.json()
-    assert body["total"] == 1
-    assert body["data"][0]["raw_merchant"] == "AmazonIndia"
+    assert body["total"] == 3
+    assert {t["raw_merchant"] for t in body["data"]} == {
+        "AmazonIndia", "AVENUESUPERMARTSLTD", "BundlTechnologiespvtLtd",
+    }
+
+
+def test_merchant_filter_is_a_search_not_an_exact_match(client):
+    """The bug: `merchant` was .eq(raw_merchant), so the UI's search box returned
+    NOTHING for "Amazon" — every real row is "AmazonIndia"/"AmazonPay"."""
+    r = client.get("/api/transactions", params={"merchant": "amazon"})
+    assert r.status_code == 200
+    assert [t["raw_merchant"] for t in r.json()["data"]] == ["AmazonIndia"]
+
+
+def test_merchant_search_is_brand_aware(client):
+    """"dmart" shares no substring with AVENUESUPERMARTSLTD, and "swiggy" none
+    with BundlTechnologiespvtLtd — the same brand map the chat uses."""
+    for keyword, expected in [("dmart", "AVENUESUPERMARTSLTD"),
+                              ("swiggy", "BundlTechnologiespvtLtd")]:
+        r = client.get("/api/transactions", params={"merchant": keyword})
+        assert [t["raw_merchant"] for t in r.json()["data"]] == [expected], keyword
+
+
+def test_merchant_exact_still_isolates_one_string(client):
+    """The triage drill-in edits the rows of one exact merchant; a search there
+    would pull in look-alikes and let an override hit the wrong rows."""
+    r = client.get("/api/transactions", params={"merchant_exact": "AmazonIndia"})
+    assert [t["id"] for t in r.json()["data"]] == ["t1"]
+    r = client.get("/api/transactions", params={"merchant_exact": "Amazon"})
+    assert r.json()["data"] == []
 
 
 def test_categories_list(client):
@@ -130,8 +186,9 @@ def test_triage_groups_the_uncategorized(client):
     r = client.get("/api/transactions/triage")
     assert r.status_code == 200
     body = r.json()
-    assert body["merchants"] == 1
-    assert body["data"][0]["raw_merchant"] == "AmazonIndia"
+    assert body["merchants"] == 3
+    # ₹-sorted, so the biggest pile is first — that's the one worth labelling.
+    assert body["data"][0]["raw_merchant"] == "AVENUESUPERMARTSLTD"
 
 
 def test_chat_messages_history_endpoint(client):

@@ -63,6 +63,13 @@ _CANONICAL_TOKENS = [
 BRAND_NAMES = frozenset(name for _, name in _CANONICAL_TOKENS)
 
 
+def brand_tokens(brand: str) -> list[str]:
+    """Every raw-string token that canonicalizes to ``brand`` (e.g. "Swiggy" ->
+    ["BUNDLTECH", "SWIGGY"]). Lets a caller build a database filter that finds all
+    of a brand's variant strings without duplicating the token list."""
+    return [token for token, name in _CANONICAL_TOKENS if name == brand]
+
+
 def canonical_merchant(raw: str) -> str:
     """Deterministic brand canonicalization (no DB): collapse merchant-string
     variants of one brand into a single name. Returns the raw string unchanged

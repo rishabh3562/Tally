@@ -42,7 +42,8 @@ async def _call(sort, order):
     rec: dict = {}
     await transactions.list_transactions(
         start_date=None, end_date=None, category_id=None, merchant=None,
-        sort=sort, order=order, page=1, limit=50, user_id="u", db=_DB(rec),
+        merchant_exact=None, sort=sort, order=order, page=1, limit=50,
+        user_id="u", db=_DB(rec),
     )
     return rec["order"]
 

@@ -30,7 +30,9 @@ function DrillIn({
     queryKey: ["merchant-rows", merchant],
     queryFn: async () => {
       const res = await apiClient.get(
-        `/api/transactions?merchant=${encodeURIComponent(merchant)}&limit=200`
+        // merchant_exact, not merchant: the drill-in edits the rows of ONE exact
+        // merchant string, so a look-alike must never appear here.
+        `/api/transactions?merchant_exact=${encodeURIComponent(merchant)}&limit=200`
       );
       return (res.data?.data ?? []) as TransactionListItem[];
     },
