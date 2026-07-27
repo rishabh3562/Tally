@@ -564,9 +564,11 @@ def _answer_habits(db: Client, user_id: str) -> str:
             "No merchant shows up often enough yet to call it a habit — I look for "
             "the same place paid at least five times."
         )
-    total = sum(i["total"] for i in items)
+    # No combined total in the headline: on real data one big-ticket merchant can
+    # dominate the sum, which would make an "it all adds up in small amounts"
+    # claim false. Frequency is the finding; each row carries its own money.
     return _listing(
-        f"The places you pay most often (together {_rupees(total)}):",
+        "The places you pay most often:",
         [
             f"{i['merchant']} — {i['count']} payments, {_rupees(i['total'])} "
             f"(~{_rupees(i['avg'])} each, about {i['per_month']:g}/month)"

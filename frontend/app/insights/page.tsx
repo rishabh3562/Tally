@@ -439,11 +439,8 @@ export default function InsightsPage() {
             <h2 className="text-lg font-bold text-gray-900">Your habits</h2>
           </div>
           <p className="mb-4 text-sm text-gray-500">
-            The places you pay most often — small amounts that quietly add up to{" "}
-            <span className="font-medium text-gray-700">
-              ₹{inr(habits?.combined_total ?? 0)}
-            </span>
-            .
+            The places you pay most often — ranked by how many times, not by size.
+            Easy to miss, and they add up.
           </p>
           <div className="divide-y">
             {habitItems.map((h) => (

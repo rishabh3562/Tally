@@ -118,7 +118,7 @@ def test_habits_answer_is_a_listing():
         "what are my spending habits", "u1", _DB(CANTEEN + ONE_OFF)
     )
     lines = out.split("\n")
-    assert lines[0].startswith("The places you pay most often")
+    assert lines[0] == "The places you pay most often:"
     assert lines[1].startswith("• HungerBox — 12 payments, Rs 960")
     assert "/month" in lines[1]
 

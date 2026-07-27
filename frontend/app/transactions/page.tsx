@@ -329,18 +329,32 @@ function TransactionsView() {
   });
   const { categories } = useCategories();
 
-  // The URL names a category ("?category=Shopping") because that's what a link
-  // from elsewhere knows; the filter itself needs the id, which only exists once
-  // categories have loaded. Apply once, then leave the user's own changes alone.
-  const urlCategoryApplied = useRef(false);
+  // Apply the URL's filters whenever the URL itself changes. Keyed on the query
+  // string, NOT a boolean: a query-only navigation (Insights → Shopping, back,
+  // Insights → Food) reuses this component without remounting, so state
+  // initializers never rerun — a once-only guard would silently show the first
+  // category's rows under the second category's URL. Keying on the value also
+  // means filters the user edits by hand are never clobbered.
+  const appliedUrl = useRef<string | null>(null);
   useEffect(() => {
-    if (urlCategoryApplied.current || !urlCategory || categories.length === 0) return;
-    const match = categories.find(
-      (c) => c.name.toLowerCase() === urlCategory.toLowerCase()
-    );
-    if (match) setCategoryFilter(match.id);
-    urlCategoryApplied.current = true;
-  }, [urlCategory, categories]);
+    const key = searchParams.toString();
+    if (appliedUrl.current === key) return;
+    // A category arrives by NAME (that's what a link knows); resolving it to an
+    // id needs the category list, so wait for it rather than dropping the filter.
+    if (urlCategory && categories.length === 0) return;
+    appliedUrl.current = key;
+
+    const q = searchParams.get("q") ?? "";
+    setSearch(q);
+    setDebouncedSearch(q);
+    setStartDate(searchParams.get("start") ?? "");
+    setEndDate(searchParams.get("end") ?? "");
+    const match = urlCategory
+      ? categories.find((c) => c.name.toLowerCase() === urlCategory.toLowerCase())
+      : undefined;
+    setCategoryFilter(match?.id ?? "");
+    setPage(1);
+  }, [searchParams, urlCategory, categories]);
 
   const rows = transactions as TransactionListItem[];
   const totalPages = Math.ceil(total / itemsPerPage);
