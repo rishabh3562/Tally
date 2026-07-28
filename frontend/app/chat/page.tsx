@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Send, Search, Wand2, ArrowUpRight } from "lucide-react";
 import { drillLinksFromTrace } from "@/lib/traceLinks";
+import Markdown from "@/components/chat/Markdown";
 import {
   ActionBadge,
   SourceBadge,
@@ -199,7 +200,7 @@ export default function ChatPage() {
             </div>
           </div>
         ) : (
-          messages.map((message) => (
+          messages.map((message, i) => (
             <div
               key={message.id}
               className={`animate-rise flex ${
@@ -213,11 +214,24 @@ export default function ChatPage() {
                     : "max-w-[92%] bg-gray-100 text-gray-900 lg:max-w-2xl"
                 }`}
               >
-                {/* break-words matters: answers list raw merchant names like
-                    SATHISHREDDYVADICHERLA, which pre-wrap alone won't break. */}
-                <p className="text-sm break-words whitespace-pre-wrap">
-                  {message.content}
-                </p>
+                {/* Assistant answers are markdown (tables, bold figures, lists).
+                    What you type is not — rendering it would mangle a merchant
+                    name with an underscore or asterisk in it.
+
+                    Not while it streams, though: the answer arrives a token at a
+                    time, and half a table is a paragraph of loose pipes that
+                    reflows on every chunk. Plain text as it types, markdown the
+                    moment it lands. break-words matters either way — answers list
+                    raw merchant names like SATHISHREDDYVADICHERLA, which pre-wrap
+                    alone won't break. */}
+                {message.role === "assistant" &&
+                !(isLoading && i === messages.length - 1) ? (
+                  <Markdown>{message.content}</Markdown>
+                ) : (
+                  <p className="text-sm break-words whitespace-pre-wrap">
+                    {message.content}
+                  </p>
+                )}
                 <div
                   className={`mt-1 flex flex-wrap items-center gap-3 text-xs ${
                     message.role === "user" ? "text-blue-100" : "text-gray-500"

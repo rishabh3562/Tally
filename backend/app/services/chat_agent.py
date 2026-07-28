@@ -30,7 +30,9 @@ logger = logging.getLogger("tally.chat.agent")
 # categorize_merchant -> final) fits; single actions/questions still finish in 2.
 DEFAULT_MAX_STEPS = 3
 _TOOL_MAX_TOKENS = 700
-_ANSWER_MAX_TOKENS = 300
+# Room for a lead sentence plus an 8-row markdown table; 300 truncated one
+# mid-row, and half a table renders as a paragraph of pipes.
+_ANSWER_MAX_TOKENS = 700
 
 
 class AgentUnavailable(Exception):
@@ -222,6 +224,30 @@ def _history_block(turns: list[dict[str, str]]) -> str:
     )
 
 
+# How an answer should LOOK, shared by both answer paths (the loop's own "final"
+# and the finalize call below) so the same question doesn't come back as a table
+# one time and a wall of prose the next.
+#
+# The last rule is the load-bearing one. `_verify_figures` only polices `Rs`
+# amounts, so a "% of total" or "vs last month" column would be an unverified
+# number wearing the authority of a table — exactly what the tool layer exists to
+# prevent. A derived figure is welcome once a tool returns it and the verifier can
+# see it; not before.
+_FORMAT_RULES = (
+    "Format the answer as GitHub-flavoured markdown:\n"
+    "- Open with one short sentence that answers the question, with the key amount "
+    "in **bold**.\n"
+    "- If the answer breaks down into 3 or more items (categories, merchants, "
+    "months), follow that sentence with a markdown table, amount column "
+    "right-aligned (|---:|). For fewer items use a sentence or a short bullet list "
+    "— a two-row table is noise.\n"
+    "- Keep it tight: the opening sentence plus at most 8 table rows.\n"
+    "- Put ONLY values that appear in the tool results into the table — names, "
+    "counts and Rs amounts, copied exactly. Never add a percentage, share, average, "
+    "rank or change column, and never compute a number the tools did not return.\n"
+)
+
+
 def _selection_prompt(
     question: str,
     transcript: list[dict[str, Any]],
@@ -244,7 +270,13 @@ def _selection_prompt(
         "CRITICAL: Output ONLY one JSON object and nothing else. No reasoning, no prose. "
         "Your reply MUST start with '{'. Use exactly one of these shapes:\n"
         '{"action":"call_tool","tool":"<name>","args":{...}}\n'
-        '{"action":"final","answer":"<one to three sentences>"}\n\n'
+        '{"action":"final","answer":"<markdown answer>"}\n\n'
+        # The answer is a JSON string, so every newline in the markdown has to be
+        # escaped. A literal newline makes the whole object unparseable — which
+        # costs a turn, since the loop then falls through to the finalize call.
+        "The answer is a JSON string value: escape newlines as \\n and quotes as "
+        '\\", and keep the object on one line.\n'
+        f"{_FORMAT_RULES}\n"
         "Pick the single best tool for the question. Give a final answer once you have "
         "enough data. Examples:\n"
         'User: How much did I spend on food last month?\n'
@@ -261,7 +293,7 @@ def _selection_prompt(
 def _answer_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
     return (
         "You are a friendly personal-finance assistant. Using ONLY the tool results "
-        "below, answer the user's question in one to three sentences. If the result is an "
+        "below, answer the user's question. If the result is an "
         "action (it has an 'action' field), confirm exactly what changed — how many "
         "payments and which category — do not invent numbers. All amounts are in Indian "
         "Rupees: write every amount as 'Rs 1,200' — never use '$', never the rupee sign, "
@@ -269,6 +301,7 @@ def _answer_prompt(question: str, transcript: list[dict[str, Any]]) -> str:
         "'Rs 4,555.64') so figures read the same everywhere in the app. Do NOT invent "
         "or recompute any number; use the figures exactly as given. If the data is "
         "empty, say so plainly.\n\n"
+        f"{_FORMAT_RULES}\n"
         f"Question: {question}\n"
         f"Tool results: {json.dumps(transcript, default=str)[:2000]}\n\n"
         "Answer:"
