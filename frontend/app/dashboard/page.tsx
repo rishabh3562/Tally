@@ -7,6 +7,7 @@ import Link from "next/link";
 import { TrendingDown, Wallet, DollarSign, Banknote, Plus, ArrowRight, ListChecks } from "lucide-react";
 import { useCategories } from "@/hooks/useCategories";
 import CategoryDonut from "@/components/dashboard/CategoryDonut";
+import Amount from "@/components/common/Amount";
 import { formatINR, formatINRCompact } from "@/lib/format";
 import type { TriageResponse, MoversResponse, RecurringResponse } from "@/types";
 
@@ -507,9 +508,7 @@ export default function DashboardPage() {
                   {new Date(tx.date).toLocaleDateString("en-IN")}
                 </p>
               </div>
-              <p className="font-semibold text-gray-900">
-                {inr(tx.amount)}
-              </p>
+              <Amount value={tx.amount} className="font-semibold" />
             </div>
           ))}
         </div>

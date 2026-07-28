@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import apiClient from "@/lib/api";
 import { formatAmount as inr } from "@/lib/format";
+import Amount from "@/components/common/Amount";
 import type { Job, JobStatus, JobTransactionsResponse } from "@/types";
 
 const PAGE_SIZE = 25;
@@ -206,7 +207,6 @@ export default function JobDetailPage() {
                     </tr>
                   ) : (
                     items.map((tx) => {
-                      const isCredit = tx.direction === "credit";
                       return (
                         <tr key={tx.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
@@ -230,12 +230,8 @@ export default function JobDetailPage() {
                           <td className="px-6 py-4 text-xs text-gray-500 font-mono">
                             {tx.upi_transaction_id || "—"}
                           </td>
-                          <td
-                            className={`px-6 py-4 text-sm font-medium text-right whitespace-nowrap ${
-                              isCredit ? "text-green-600" : "text-gray-900"
-                            }`}
-                          >
-                            {isCredit ? "+" : "−"}₹{inr(tx.amount)}
+                          <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
+                            <Amount value={tx.amount} />
                           </td>
                         </tr>
                       );

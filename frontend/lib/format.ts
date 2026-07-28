@@ -11,6 +11,31 @@ export function formatINR(value: number | null | undefined): string {
   return `₹${formatAmount(value)}`;
 }
 
+/** A single transaction's amount, signed the way the person experienced it.
+ *
+ *  Storage and reading are opposite here: a payment OUT is stored positive
+ *  (`amount > 0` means money left the account) and money IN is stored negative.
+ *  Printed raw that reads backwards — a ₹500 refund appeared as "-₹500", which
+ *  looks like a charge. So the display flips it: money in is +, money out is −.
+ *  Zero takes no sign.
+ *
+ *  For a total that is spending by definition (a category total, a group total)
+ *  use `formatINR` — a sign there says nothing and only adds noise. */
+export function formatSignedINR(value: number | null | undefined): string {
+  const n = Number(value || 0);
+  const sign = n < 0 ? "+" : n > 0 ? "−" : "";
+  return `${sign}₹${formatAmount(Math.abs(n))}`;
+}
+
+/** Colour for the same figure: money in green, money out red, zero neutral.
+ *  Paired with `formatSignedINR` so the sign and the colour can never disagree. */
+export function amountToneClass(value: number | null | undefined): string {
+  const n = Number(value || 0);
+  if (n < 0) return "text-emerald-600";
+  if (n > 0) return "text-red-600";
+  return "text-gray-900";
+}
+
 /** Short form for chart axes, in Indian units (lakh/crore, not million):
  *  12345 → "₹12.3k", 250000 → "₹2.5L", 12000000 → "₹1.2Cr". A full
  *  "₹12,00,000" tick is wider than the bar it labels on a phone. */

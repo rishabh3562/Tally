@@ -7,6 +7,7 @@ import apiClient from "@/lib/api";
 import type { GroupDetail } from "@/types";
 
 import { formatAmount as inr } from "@/lib/format";
+import Amount from "@/components/common/Amount";
 
 function KindBadge({ kind }: { kind: GroupDetail["kind"] }) {
   const styles =
@@ -104,7 +105,6 @@ export default function GroupDetailPage() {
                     </tr>
                   ) : (
                     transactions.map((tx) => {
-                      const isCredit = tx.direction === "credit";
                       return (
                         <tr key={tx.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
@@ -128,12 +128,8 @@ export default function GroupDetailPage() {
                           <td className="px-6 py-4 text-xs text-gray-500 font-mono">
                             {tx.upi_transaction_id || "—"}
                           </td>
-                          <td
-                            className={`px-6 py-4 text-sm font-medium text-right whitespace-nowrap ${
-                              isCredit ? "text-green-600" : "text-gray-900"
-                            }`}
-                          >
-                            {isCredit ? "+" : "−"}₹{inr(tx.amount)}
+                          <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
+                            <Amount value={tx.amount} />
                           </td>
                         </tr>
                       );

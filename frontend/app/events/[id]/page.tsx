@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Sparkles, Trash2 } from "lucide-react";
 import apiClient from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import Amount from "@/components/common/Amount";
 import type { EventDetail } from "@/types";
 
 export default function EventDetailPage() {
@@ -200,8 +201,8 @@ export default function EventDetailPage() {
                             <span className="text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900 text-right whitespace-nowrap">
-                          {formatCurrency(tx.amount)}
+                        <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
+                          <Amount value={tx.amount} />
                         </td>
                       </tr>
                     ))

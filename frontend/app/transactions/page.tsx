@@ -9,7 +9,8 @@ import { Sparkles } from "lucide-react";
 import apiClient from "@/lib/api";
 import { useTransactions } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useCategories";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import Amount from "@/components/common/Amount";
 import type {
   Category,
   CategorySuggestion,
@@ -50,8 +51,6 @@ function TransactionRow({
   const [suggestion, setSuggestion] = useState<CategorySuggestion | null>(null);
   const [applied, setApplied] = useState(false);
   const [savedHint, setSavedHint] = useState(false);
-
-  const isCredit = tx.direction === "credit";
 
   const suggestMutation = useMutation({
     mutationFn: async () => {
@@ -167,12 +166,8 @@ function TransactionRow({
           </span>
           <div className="mt-2 md:hidden">{categoryControl}</div>
         </td>
-        <td
-          className={`whitespace-nowrap px-3 py-4 text-right align-top text-sm font-medium md:px-6 md:text-left md:align-middle ${
-            isCredit ? "text-green-600" : "text-gray-900"
-          }`}
-        >
-          {formatCurrency(tx.amount)}
+        <td className="whitespace-nowrap px-3 py-4 text-right align-top text-sm font-medium md:px-6 md:text-left md:align-middle">
+          <Amount value={tx.amount} />
         </td>
         <td className="hidden whitespace-nowrap px-6 py-4 md:table-cell">
           {categoryControl}
