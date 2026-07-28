@@ -115,6 +115,15 @@ export default function LoginPage() {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          // Without this, the confirmation link is built from the project's Site
+          // URL — which is http://localhost:3000 out of the box, so a deployed
+          // signup emails a link into a machine the person isn't on. Sending the
+          // origin they actually signed up from makes local and production each
+          // send their own link. Supabase only honours an origin that is in the
+          // Redirect URLs allow-list, so both have to be listed there.
+          emailRedirectTo: `${window.location.origin}/dashboard`,
+        },
       });
 
       if (signUpError) {
