@@ -2,14 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import apiClient from "@/lib/api";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from "recharts";
 import Link from "next/link";
 import { TrendingDown, Wallet, DollarSign, Banknote, Plus, ArrowRight, ListChecks } from "lucide-react";
 import { useCategories } from "@/hooks/useCategories";
-import { formatINR } from "@/lib/format";
+import CategoryDonut from "@/components/dashboard/CategoryDonut";
+import { formatINR, formatINRCompact } from "@/lib/format";
 import type { TriageResponse, MoversResponse, RecurringResponse } from "@/types";
-
-const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
 // Skeleton shown while the (large, limit:1000) transactions query is in flight.
 // Without it the page briefly renders its "No transactions yet" empty state to a
@@ -81,35 +80,51 @@ export default function DashboardPage() {
   // name), so resolve it through the categories map — otherwise every row falls
   // into one bucket and the pie is meaningless. Sub-categories roll up to their
   // top-level parent (Food › Pizza counts under Food) so the pie stays legible.
-  const categoryTotals = transactions.reduce((acc: Record<string, number>, tx: any) => {
-    const category =
-      rootNameById.get(tx.category_id) ||
-      nameById.get(tx.category_id) ||
-      "Uncategorized";
-    acc[category] = (acc[category] || 0) + tx.amount;
-    return acc;
-  }, {});
+  //
+  // Spend rows only, matching `totalSpent` below. Netting credits in here made
+  // the breakdown disagree with the headline: a ₹500 payment with a ₹100 refund
+  // counted as 400 in the donut and 500 in "You spent", and any category that
+  // happened to net negative vanished from the chart entirely.
+  const categoryTotals = transactions
+    .filter((tx: any) => tx.amount > 0)
+    .reduce((acc: Record<string, number>, tx: any) => {
+      const category =
+        rootNameById.get(tx.category_id) ||
+        nameById.get(tx.category_id) ||
+        "Uncategorized";
+      acc[category] = (acc[category] || 0) + tx.amount;
+      return acc;
+    }, {});
 
   const categoryData = Object.entries(categoryTotals)
-    .map(([name, value]) => ({ name, value: Number(value) }))
-    .filter((c) => c.value > 0); // spend slices only (credits net to <= 0)
+    .map(([name, value]) => ({ name, value: Number(value) }));
 
-  // Calculate monthly totals
-  const monthlyTotals: Record<string, number> = {};
+  // Monthly totals, spend and money-in kept apart. Summing raw amounts nets a
+  // refund against the spending it reverses, so a month with a big return used to
+  // draw a short bar and quietly under-report what was actually paid out.
+  const monthlyTotals: Record<string, { spent: number; received: number }> = {};
   transactions.forEach((tx: any) => {
     const month = new Date(tx.date).toLocaleDateString("en-IN", {
       month: "short",
       year: "numeric",
     });
-    monthlyTotals[month] = (monthlyTotals[month] || 0) + tx.amount;
+    const bucket = (monthlyTotals[month] ||= { spent: 0, received: 0 });
+    if (tx.amount > 0) bucket.spent += tx.amount;
+    else bucket.received += -tx.amount;
   });
 
   const monthlyData = Object.entries(monthlyTotals)
     .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-    .map(([month, value]) => ({
+    .map(([month, v]) => ({
       month,
-      amount: Number(value),
+      spent: Number(v.spent),
+      received: Number(v.received),
     }));
+  const anyMoneyIn = monthlyData.some((m) => m.received > 0);
+  const avgMonthlySpend =
+    monthlyData.length > 0
+      ? monthlyData.reduce((s, m) => s + m.spent, 0) / monthlyData.length
+      : 0;
 
   // Spend and received are opposite signs; report them separately (summing all
   // amounts together nets them and mislabels the result as "spent").
@@ -385,46 +400,92 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {categoryData.length > 0 && (
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Spending by Category</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={categoryData.slice(0, 6)}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, value }) =>
-                    `${name}: ${inr(value as number)}`
-                  }
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {categoryData.slice(0, 6).map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
+            <div className="mb-4 flex items-baseline justify-between gap-3">
+              <h2 className="text-lg font-bold text-gray-900">Spending by Category</h2>
+              <Link
+                href="/transactions"
+                className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                All →
+              </Link>
+            </div>
+            <CategoryDonut data={categoryData} iconByName={iconByName} />
           </div>
         )}
 
         {monthlyData.length > 0 && (
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">Monthly Spending</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip
-                  formatter={(value) =>
-                    `${inr(value as number)}`
-                  }
-                />
-                <Bar dataKey="amount" fill="#3b82f6" />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="mb-4 flex items-baseline justify-between gap-3">
+              <h2 className="text-lg font-bold text-gray-900">
+                {anyMoneyIn ? "Monthly Spend vs Money In" : "Monthly Spending"}
+              </h2>
+              {avgMonthlySpend > 0 && monthlyData.length > 1 && (
+                <p className="shrink-0 text-sm text-gray-500">
+                  avg <span className="font-semibold text-gray-700">{inr(avgMonthlySpend)}</span>/mo
+                </p>
+              )}
+            </div>
+            <div className="h-[220px] w-full lg:h-[260px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 12, fill: "#6b7280" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#e5e7eb" }}
+                    interval="preserveStartEnd"
+                    minTickGap={8}
+                  />
+                  {/* Compact ticks: a full "₹12,00,000" label is wider than the
+                      bar it belongs to once the chart is phone-width. */}
+                  <YAxis
+                    tick={{ fontSize: 12, fill: "#6b7280" }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={52}
+                    tickFormatter={(v) => formatINRCompact(v as number)}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "#f3f4f6" }}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      fontSize: 13,
+                      color: "#111827",
+                    }}
+                    labelStyle={{ color: "#111827", fontWeight: 600 }}
+                    formatter={(value, name) => [
+                      inr(value as number),
+                      name === "spent" ? "Spent" : "Money in",
+                    ]}
+                  />
+                  {anyMoneyIn && (
+                    <Legend
+                      iconType="circle"
+                      iconSize={8}
+                      formatter={(value) => (
+                        <span className="text-xs text-gray-600">
+                          {value === "spent" ? "Spent" : "Money in"}
+                        </span>
+                      )}
+                    />
+                  )}
+                  {/* What a typical month costs, so a spike reads as a spike. */}
+                  {avgMonthlySpend > 0 && monthlyData.length > 1 && (
+                    <ReferenceLine
+                      y={avgMonthlySpend}
+                      stroke="#9ca3af"
+                      strokeDasharray="4 4"
+                    />
+                  )}
+                  <Bar dataKey="spent" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  {anyMoneyIn && (
+                    <Bar dataKey="received" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  )}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         )}
       </div>
