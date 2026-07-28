@@ -106,10 +106,13 @@ export default function ChatPage() {
 
   return (
     <div className="max-w-4xl mx-auto h-full flex flex-col">
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
+      <div className="mb-6 flex items-start justify-between gap-4 md:mb-8">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900 md:text-4xl">Ask About Your Finances</h1>
-          <p className="text-gray-600 mt-2">
+          {/* Desktop only. On a phone this sentence wrapped to three lines and
+              pushed the conversation below the fold, to say what the Ask/Do cards
+              underneath already demonstrate with real examples. */}
+          <p className="mt-2 hidden text-gray-600 md:block">
             Ask about your spending — or tell me to categorize merchants and create
             categories, and I&apos;ll do it.
           </p>
